@@ -29,9 +29,17 @@ impl Depth {
     /// fetch_add can wrap when threads race.
     #[inline]
     pub fn inc(&self, i: u64) -> bool {
-        self.0[i as usize]
-            .fetch_update(Relaxed, Relaxed, |v| v.checked_add(1))
-            .is_ok()
+        let a = &self.0[i as usize];
+        let mut v = a.load(Relaxed);
+        loop {
+            if v == u16::MAX {
+                return false;
+            }
+            match a.compare_exchange_weak(v, v + 1, Relaxed, Relaxed) {
+                Ok(_) => return true,
+                Err(now) => v = now,
+            }
+        }
     }
 
     pub fn as_slice(&self) -> &[AtomicU16] {

@@ -3,7 +3,7 @@ use common::*;
 
 #[test]
 fn reverse_trailing_softclip_groups_by_unclipped_5p() {
-    let (r, _) = run_fixture("dup_softclip_reverse.sam");
+    let (r, _) = run_fixture_except("dup_softclip_reverse.sam", &["/coverage", "/insert_size"]);
     assert_eq!(u(&r, "/duplicates/pairs_examined"), 5);
     assert_eq!(u(&r, "/duplicates/duplicate_pairs"), 3);
     assert_eq!(u(&r, "/duplicates/duplicate_groups"), 1);

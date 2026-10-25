@@ -36,6 +36,14 @@ pub fn run_cfg(c: &RunConfig) -> (Value, Depth) {
 }
 
 pub fn run_fixture(name: &str) -> (Value, Depth) {
+    run_fixture_except(name, &[])
+}
+
+/// As `run_fixture`, but the JSON sections in `vary` (and the depth arrays)
+/// may differ between the two runs. For fixtures whose duplicate members
+/// differ in clips or TLEN: which member is kept for coverage and insert
+/// size depends on thread timing (locked decision 5); counts do not.
+pub fn run_fixture_except(name: &str, vary: &[&str]) -> (Value, Depth) {
     let mut one = config(name);
     one.threads = 1;
     one.block_size = 1 << 20;
@@ -43,9 +51,18 @@ pub fn run_fixture(name: &str) -> (Value, Depth) {
     many.threads = 4;
     many.block_size = 64;
     let (a, da) = run_cfg(&one);
-    let (b, db) = run_cfg(&many);
-    assert_eq!(a, b, "{name}: 1 thread and 4 threads disagree");
-    assert_eq!(da, db, "{name}: depth arrays disagree");
+    let (mut b, db) = run_cfg(&many);
+    let mut a_cmp = a.clone();
+    for ptr in vary {
+        for v in [&mut a_cmp, &mut b] {
+            *v.pointer_mut(ptr)
+                .unwrap_or_else(|| panic!("missing {ptr}")) = Value::Null;
+        }
+    }
+    assert_eq!(a_cmp, b, "{name}: 1 thread and 4 threads disagree");
+    if vary.is_empty() {
+        assert_eq!(da, db, "{name}: depth arrays disagree");
+    }
     (a, da)
 }
 
