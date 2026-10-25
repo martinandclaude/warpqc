@@ -37,6 +37,9 @@ pub struct RunConfig {
     pub library: String,
     pub expect_reads: Option<u64>,
     pub block_size: usize,
+    pub bin_size: u32,
+    pub exclude_bed: Option<PathBuf>,
+    pub thresholds: Option<PathBuf>,
     pub command: String,
     /// Keep copies of the depth arrays in the outcome (tests).
     pub keep_depth: bool,
@@ -56,6 +59,9 @@ impl RunConfig {
             library: String::new(),
             expect_reads: None,
             block_size: 4 << 20,
+            bin_size: crate::reference::DEFAULT_BIN_SIZE,
+            exclude_bed: None,
+            thresholds: None,
             command: String::new(),
             keep_depth: false,
         }
@@ -99,7 +105,8 @@ fn open_input(path: Option<&PathBuf>) -> Result<Box<dyn LineSource>> {
 }
 
 pub fn run(cfg: &RunConfig) -> Result<Outcome> {
-    let reference = Reference::load(&cfg.reference, cfg.ref_cache.as_deref())?;
+    let (reference, ref_warning) =
+        Reference::load(&cfg.reference, cfg.ref_cache.as_deref(), cfg.bin_size)?;
     let set = AnalysisSet::resolve(&reference, cfg.contigs.as_deref())?;
     let src = open_input(cfg.input.as_ref())?;
     let header = Header::parse(src.header())?;
@@ -107,7 +114,7 @@ pub fn run(cfg: &RunConfig) -> Result<Outcome> {
     let layout = Layout::new(&reference, &set, &tid_to_ref)?;
     let tids = TidMap::new(&header.names());
 
-    let mut warnings = Vec::new();
+    let mut warnings: Vec<String> = ref_warning.into_iter().collect();
     if !set.missing_defaults.is_empty() {
         warnings.push(format!(
             "default analysis contigs not in the reference: {}",

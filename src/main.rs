@@ -6,7 +6,7 @@ use clap::{Args, Parser, Subcommand};
 use warpqc::error::{IoContext, Result, input};
 use warpqc::metrics::Params;
 use warpqc::pipeline::{DEFAULT_THRESHOLDS, RunConfig, run};
-use warpqc::reference::Reference;
+use warpqc::reference::{DEFAULT_BIN_SIZE, Reference};
 use warpqc::report::write_atomic;
 
 #[global_allocator]
@@ -32,6 +32,9 @@ enum Cmd {
         /// Cache file to write.
         #[arg(long)]
         out: PathBuf,
+        /// Bin size for the per-bin GC table (must match `run --bin-size`).
+        #[arg(long, default_value_t = DEFAULT_BIN_SIZE)]
+        bin_size: u32,
     },
 }
 
@@ -131,9 +134,11 @@ fn main() -> ExitCode {
     let cli = Cli::parse();
     let res = match cli.cmd {
         Cmd::Run(a) => run_cmd(a),
-        Cmd::PrepareRef { reference, out } => {
-            Reference::from_fasta(&reference).and_then(|r| r.write_cache(&out))
-        }
+        Cmd::PrepareRef {
+            reference,
+            out,
+            bin_size,
+        } => Reference::from_fasta(&reference, bin_size).and_then(|r| r.write_cache(&out)),
     };
     match res {
         Ok(()) => ExitCode::SUCCESS,

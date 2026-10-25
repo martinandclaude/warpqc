@@ -1,5 +1,6 @@
-//! Reference FASTA (via `.fai`): contig lengths, N runs and SAM-style M5
-//! checksums, the analysis contig set, and the `.warpqc` cache.
+//! Reference FASTA (via `.fai`): contig lengths, N runs, SAM-style M5
+//! checksums and GC per bin, the analysis contig set, and the `.warpqc`
+//! cache.
 
 use std::fs::File;
 use std::io::{BufRead, BufReader, Read, Seek, SeekFrom};
@@ -19,6 +20,32 @@ pub struct Contig {
     pub m5: String,
     /// Half-open 0-based runs of N/n.
     pub n_runs: Vec<(u64, u64)>,
+    /// GC% (0-100, rounded half up) of each full bin of `Reference::bin_size`
+    /// bases; `NO_GC` for bins with an N. The partial last bin is omitted.
+    #[serde(with = "hex_bytes")]
+    pub gc: Vec<u8>,
+}
+
+/// GC value of a bin that is not usable (contains an N).
+pub const NO_GC: u8 = 255;
+
+mod hex_bytes {
+    use serde::{Deserialize, Deserializer, Serializer};
+
+    pub fn serialize<S: Serializer>(v: &[u8], s: S) -> Result<S::Ok, S::Error> {
+        s.serialize_str(&super::hex(v))
+    }
+
+    pub fn deserialize<'de, D: Deserializer<'de>>(d: D) -> Result<Vec<u8>, D::Error> {
+        let s = String::deserialize(d)?;
+        if s.len() % 2 != 0 {
+            return Err(serde::de::Error::custom("odd-length hex string"));
+        }
+        (0..s.len())
+            .step_by(2)
+            .map(|i| u8::from_str_radix(&s[i..i + 2], 16).map_err(serde::de::Error::custom))
+            .collect()
+    }
 }
 
 impl Contig {
@@ -33,10 +60,13 @@ pub struct Reference {
     /// MD5 of the `.fai` file, used to check that a cache belongs to the
     /// FASTA given on the command line.
     pub fai_md5: String,
+    /// Bin size the per-contig GC values were computed for.
+    pub bin_size: u32,
 }
 
+pub const DEFAULT_BIN_SIZE: u32 = 1000;
 const CACHE_FORMAT: &str = "warpqc-ref";
-const CACHE_VERSION: u32 = 1;
+const CACHE_VERSION: u32 = 2;
 
 #[derive(Serialize, Deserialize)]
 struct CacheFile {
@@ -97,7 +127,10 @@ fn read_fai(fasta: &Path) -> Result<(Vec<FaiEntry>, String)> {
     Ok((entries, hex(&Md5::digest(&bytes))))
 }
 
-fn scan_contig(fasta: &Path, e: &FaiEntry) -> Result<Contig> {
+fn scan_contig(fasta: &Path, e: &FaiEntry, bin_size: u32) -> Result<Contig> {
+    let bin = bin_size as u64;
+    let mut gc = Vec::with_capacity((e.len / bin) as usize);
+    let (mut bin_gc, mut bin_n, mut in_bin) = (0u64, false, 0u64);
     let mut f = File::open(fasta).ctx(format!("opening {}", fasta.display()))?;
     f.seek(SeekFrom::Start(e.offset))
         .ctx(format!("seeking in {}", fasta.display()))?;
@@ -133,10 +166,25 @@ fn scan_contig(fasta: &Path, e: &FaiEntry) -> Result<Contig> {
             c.make_ascii_uppercase();
             if *c == b'N' {
                 run_start.get_or_insert(pos);
-            } else if let Some(s) = run_start.take() {
-                n_runs.push((s, pos));
+                bin_n = true;
+            } else {
+                if let Some(s) = run_start.take() {
+                    n_runs.push((s, pos));
+                }
+                if *c == b'G' || *c == b'C' {
+                    bin_gc += 1;
+                }
             }
             pos += 1;
+            in_bin += 1;
+            if in_bin == bin {
+                gc.push(if bin_n {
+                    NO_GC
+                } else {
+                    ((200 * bin_gc + bin) / (2 * bin)) as u8
+                });
+                (bin_gc, bin_n, in_bin) = (0, false, 0);
+            }
         }
         md5.update(&buf);
     }
@@ -155,17 +203,25 @@ fn scan_contig(fasta: &Path, e: &FaiEntry) -> Result<Contig> {
         len: e.len,
         m5: hex(&md5.finalize()),
         n_runs,
+        gc,
     })
 }
 
 impl Reference {
-    pub fn from_fasta(fasta: &Path) -> Result<Reference> {
+    pub fn from_fasta(fasta: &Path, bin_size: u32) -> Result<Reference> {
+        if bin_size == 0 {
+            return Err(input("--bin-size must be at least 1"));
+        }
         let (entries, fai_md5) = read_fai(fasta)?;
         let contigs = entries
             .par_iter()
-            .map(|e| scan_contig(fasta, e))
+            .map(|e| scan_contig(fasta, e, bin_size))
             .collect::<Result<Vec<_>>>()?;
-        Ok(Reference { contigs, fai_md5 })
+        Ok(Reference {
+            contigs,
+            fai_md5,
+            bin_size,
+        })
     }
 
     /// Loads a cache written by `prepare-ref` and checks it against the
@@ -197,10 +253,29 @@ impl Reference {
         Ok(c.reference)
     }
 
-    pub fn load(fasta: &Path, cache: Option<&Path>) -> Result<Reference> {
+    /// Loads from the cache if given, else scans the FASTA. A cache built
+    /// for another bin size is still validated, then the FASTA is rescanned;
+    /// the returned warning says so.
+    pub fn load(
+        fasta: &Path,
+        cache: Option<&Path>,
+        bin_size: u32,
+    ) -> Result<(Reference, Option<String>)> {
         match cache {
-            Some(c) => Reference::from_cache(c, fasta),
-            None => Reference::from_fasta(fasta),
+            Some(c) => {
+                let r = Reference::from_cache(c, fasta)?;
+                if r.bin_size == bin_size {
+                    Ok((r, None))
+                } else {
+                    let warn = format!(
+                        "{} was built for bin size {}; GC was recomputed from the FASTA for bin size {bin_size}",
+                        c.display(),
+                        r.bin_size
+                    );
+                    Ok((Reference::from_fasta(fasta, bin_size)?, Some(warn)))
+                }
+            }
+            None => Ok((Reference::from_fasta(fasta, bin_size)?, None)),
         }
     }
 
@@ -318,7 +393,7 @@ mod tests {
 
     #[test]
     fn scans_mini_reference() {
-        let r = Reference::from_fasta(&mini()).unwrap();
+        let r = Reference::from_fasta(&mini(), 20).unwrap();
         let names: Vec<_> = r.contigs.iter().map(|c| c.name.as_str()).collect();
         assert_eq!(names, ["chr1", "chr2", "chrM", "chrUn_decoy"]);
         assert_eq!(r.contigs[0].len, 400);
@@ -328,15 +403,35 @@ mod tests {
         // Expected values from `samtools dict`.
         assert_eq!(r.contigs[0].m5, "36cc0a69c14906c47035ad94be13b787");
         assert_eq!(r.contigs[3].m5, "0bbd37a5c06775d5c2ed7c8f7a60d921");
+        // Expected GC% per 20 bp bin from an independent Python scan; bin 10
+        // overlaps the N run.
+        assert_eq!(
+            r.contigs[0].gc,
+            vec![
+                35, 40, 55, 50, 60, 80, 30, 40, 35, 55, NO_GC, 40, 70, 55, 30, 55, 45, 50, 65, 50
+            ]
+        );
+        assert_eq!(r.contigs[2].gc, vec![55, 55, 50, 40, 65]);
+        // A partial last bin is omitted.
+        assert_eq!(
+            Reference::from_fasta(&mini(), 30).unwrap().contigs[2]
+                .gc
+                .len(),
+            3
+        );
     }
 
     #[test]
     fn cache_round_trip_and_mismatch() {
-        let r = Reference::from_fasta(&mini()).unwrap();
+        let r = Reference::from_fasta(&mini(), 20).unwrap();
         let dir = tempfile::tempdir().unwrap();
         let cache = dir.path().join("mini.warpqc");
         r.write_cache(&cache).unwrap();
         assert_eq!(Reference::from_cache(&cache, &mini()).unwrap(), r);
+        // Another bin size: the cache is checked, then GC is recomputed.
+        let (r50, warn) = Reference::load(&mini(), Some(&cache), 50).unwrap();
+        assert_eq!((r50.bin_size, r50.contigs[0].gc.len()), (50, 8));
+        assert!(warn.unwrap().contains("bin size 20"));
 
         // A different FASTA (different .fai) must be rejected.
         let other = dir.path().join("other.fa");
@@ -348,7 +443,7 @@ mod tests {
 
     #[test]
     fn analysis_set_resolution() {
-        let r = Reference::from_fasta(&mini()).unwrap();
+        let r = Reference::from_fasta(&mini(), 20).unwrap();
         let d = AnalysisSet::resolve(&r, None).unwrap();
         assert_eq!(d.contigs, vec![0, 1, 2]);
         assert!(d.missing_defaults.contains(&"chrX".to_string()));

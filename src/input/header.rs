@@ -87,6 +87,7 @@ mod tests {
     fn mini() -> Reference {
         Reference::from_fasta(
             &PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/ref/mini.fa"),
+            1000,
         )
         .unwrap()
     }
