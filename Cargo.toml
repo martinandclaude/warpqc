@@ -1,0 +1,30 @@
+[package]
+name = "warpqc"
+version = "0.1.0"
+edition = "2024"
+description = "WarpQC: streaming whole-genome QC from aligner output"
+license = "MIT"
+
+[dependencies]
+clap = { version = "4.6.7", features = ["derive"] }
+crossbeam-channel = "0.5.17"
+hashbrown = "0.17.1"
+md-5 = "0.11.0"
+memchr = "2.8.3"
+mimalloc = "0.1.52"
+parking_lot = "0.13.0"
+rayon = "1.12.0"
+serde = { version = "1.0.229", features = ["derive"] }
+serde_json = "1.0.154"
+thiserror = "2.0.21"
+
+[dev-dependencies]
+proptest = "1.12.0"
+tempfile = "3.27.0"
+
+[profile.release]
+lto = "fat"
+codegen-units = 1
+
+[profile.test]
+opt-level = 1
