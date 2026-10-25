@@ -62,3 +62,40 @@ pub fn write_all(r: &json::Report, prefix: &Path) -> Result<Vec<std::path::PathB
     written.extend(write_rendered(r, prefix)?);
     Ok(written)
 }
+
+/// The output prefix for `render`: `--out` if given (a trailing `.qc.html`
+/// or `.qc.json` is dropped), else the JSON path without `.qc.json`.
+pub fn render_prefix(json: &Path, out: Option<&Path>) -> std::path::PathBuf {
+    let strip = |p: &Path| {
+        let s = p.to_string_lossy();
+        for suffix in [".qc.json", ".qc.html", ".json", ".html"] {
+            if let Some(stem) = s.strip_suffix(suffix) {
+                return std::path::PathBuf::from(stem);
+            }
+        }
+        p.to_path_buf()
+    };
+    strip(out.unwrap_or(json))
+}
+
+/// `warpqc render`: rebuilds the HTML and MultiQC files from a report. With
+/// thresholds, re-evaluates `qc_status` and writes `<prefix>.qc.json` too.
+pub fn render(
+    json: &Path,
+    thresholds: Option<&Path>,
+    out: Option<&Path>,
+) -> Result<Vec<std::path::PathBuf>> {
+    let bytes = std::fs::read(json).ctx(format!("reading {}", json.display()))?;
+    let mut report = json::Report::from_json(&bytes)?;
+    let prefix = render_prefix(json, out);
+    match thresholds {
+        Some(t) => {
+            let t = thresholds::Thresholds::load(t)?;
+            let v = serde_json::to_value(&report).expect("report serialises");
+            t.validate(&v)?;
+            report.apply_thresholds(&t);
+            write_all(&report, &prefix)
+        }
+        None => write_rendered(&report, &prefix),
+    }
+}

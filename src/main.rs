@@ -37,6 +37,19 @@ enum Cmd {
         #[arg(long, default_value_t = DEFAULT_BIN_SIZE)]
         bin_size: u32,
     },
+    /// Rebuild the HTML and MultiQC files from a report, optionally
+    /// re-evaluating qc_status with new thresholds (rewrites the JSON then).
+    Render {
+        /// A <prefix>.qc.json written by `warpqc run`.
+        #[arg(long)]
+        json: PathBuf,
+        /// Thresholds YAML to apply.
+        #[arg(long)]
+        thresholds: Option<PathBuf>,
+        /// Output prefix [default: the JSON path without .qc.json].
+        #[arg(long)]
+        out: Option<PathBuf>,
+    },
 }
 
 #[derive(Args)]
@@ -140,6 +153,11 @@ fn main() -> ExitCode {
             out,
             bin_size,
         } => Reference::from_fasta(&reference, bin_size).and_then(|r| r.write_cache(&out)),
+        Cmd::Render {
+            json,
+            thresholds,
+            out,
+        } => warpqc::report::render(&json, thresholds.as_deref(), out.as_deref()).map(|_| ()),
     };
     match res {
         Ok(()) => ExitCode::SUCCESS,
