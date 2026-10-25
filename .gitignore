@@ -1,0 +1,3 @@
+/target
+*.qc.json.tmp
+.DS_Store
