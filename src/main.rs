@@ -3,11 +3,11 @@ use std::process::ExitCode;
 
 use clap::{Args, Parser, Subcommand};
 
-use warpqc::error::{IoContext, Result, input};
+use warpqc::error::{Result, input};
 use warpqc::metrics::Params;
 use warpqc::pipeline::{DEFAULT_THRESHOLDS, RunConfig, run};
 use warpqc::reference::{DEFAULT_BIN_SIZE, Reference};
-use warpqc::report::write_atomic;
+use warpqc::report::write_all;
 
 #[global_allocator]
 static GLOBAL: mimalloc::MiMalloc = mimalloc::MiMalloc;
@@ -96,12 +96,6 @@ struct RunArgs {
     input: String,
 }
 
-fn with_suffix(prefix: &std::path::Path, suffix: &str) -> PathBuf {
-    let mut s = prefix.as_os_str().to_owned();
-    s.push(suffix);
-    PathBuf::from(s)
-}
-
 fn run_cmd(a: RunArgs) -> Result<()> {
     if a.threads == 0 {
         return Err(input("--threads must be at least 1"));
@@ -134,11 +128,7 @@ fn run_cmd(a: RunArgs) -> Result<()> {
     cfg.exclude_bed = a.exclude_bed;
     cfg.command = std::env::args().collect::<Vec<_>>().join(" ");
     let out = run(&cfg)?;
-    let json = with_suffix(&a.out, ".qc.json");
-    if let Some(dir) = json.parent().filter(|d| !d.as_os_str().is_empty()) {
-        std::fs::create_dir_all(dir).ctx(format!("creating {}", dir.display()))?;
-    }
-    write_atomic(&json, &out.report.to_json())
+    write_all(&out.report, &a.out).map(|_| ())
 }
 
 fn main() -> ExitCode {

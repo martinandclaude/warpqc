@@ -1,6 +1,7 @@
 //! Report output. v0.1 writes JSON only.
 
 pub mod json;
+pub mod multiqc;
 pub mod thresholds;
 
 use std::io::Write;
@@ -24,4 +25,36 @@ pub fn write_atomic(path: &Path, bytes: &[u8]) -> Result<()> {
         let _ = std::fs::remove_file(&tmp);
     }
     res.ctx(format!("writing {}", path.display()))
+}
+
+pub fn with_suffix(prefix: &Path, suffix: &str) -> std::path::PathBuf {
+    let mut s = prefix.as_os_str().to_owned();
+    s.push(suffix);
+    std::path::PathBuf::from(s)
+}
+
+/// Writes the files rendered from a report: the MultiQC custom content
+/// (HTML follows in the same place). Returns the paths written.
+pub fn write_rendered(r: &json::Report, prefix: &Path) -> Result<Vec<std::path::PathBuf>> {
+    let mut written = Vec::new();
+    for (suffix, v) in multiqc::files(r) {
+        let p = with_suffix(prefix, suffix);
+        let mut b = serde_json::to_vec_pretty(&v).expect("MultiQC JSON serialises");
+        b.push(b'\n');
+        write_atomic(&p, &b)?;
+        written.push(p);
+    }
+    Ok(written)
+}
+
+/// Writes `<prefix>.qc.json` first, then everything rendered from it.
+pub fn write_all(r: &json::Report, prefix: &Path) -> Result<Vec<std::path::PathBuf>> {
+    let json = with_suffix(prefix, ".qc.json");
+    if let Some(dir) = json.parent().filter(|d| !d.as_os_str().is_empty()) {
+        std::fs::create_dir_all(dir).ctx(format!("creating {}", dir.display()))?;
+    }
+    write_atomic(&json, &r.to_json())?;
+    let mut written = vec![json];
+    written.extend(write_rendered(r, prefix)?);
+    Ok(written)
 }
