@@ -23,7 +23,7 @@ fn median(v: &mut [f64]) -> Option<f64> {
     }
     v.sort_by(f64::total_cmp);
     let n = v.len();
-    Some(if n % 2 == 0 {
+    Some(if n.is_multiple_of(2) {
         (v[n / 2 - 1] + v[n / 2]) / 2.0
     } else {
         v[n / 2]
@@ -189,13 +189,18 @@ pub fn report(
     let mut per_contig: Vec<Vec<(f64, u8)>> = Vec::new();
     for c in &bins.contigs {
         let mut v = Vec::with_capacity(c.n);
-        for i in c.first..c.first + c.n {
-            if bins.gc[i] == NO_GC {
+        let r = c.first..c.first + c.n;
+        for ((&count, &gc), &bed) in counts[r.clone()]
+            .iter()
+            .zip(&bins.gc[r.clone()])
+            .zip(&bins.bed_excluded[r])
+        {
+            if gc == NO_GC {
                 excluded_n += 1;
-            } else if bins.bed_excluded[i] {
+            } else if bed {
                 excluded_bed += 1;
             } else {
-                v.push((counts[i] as f64, bins.gc[i]));
+                v.push((count as f64, gc));
             }
         }
         per_contig.push(v);

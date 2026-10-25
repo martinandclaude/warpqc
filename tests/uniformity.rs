@@ -45,16 +45,16 @@ fn bin_counts_and_exclusions() {
     assert_eq!(unusable(&chr1.2), vec![3, 10]);
     assert_eq!(unusable(&chr2.2), vec![0]);
 
-    let u = |p: &str| format!("/uniformity/{p}");
-    assert_eq!(u(&r, &u("bin_size")), 20);
-    assert_eq!(u(&r, &u("bins_total")), 35);
-    assert_eq!(u(&r, &u("bins_excluded_n")), 1);
-    assert_eq!(u(&r, &u("bins_excluded_bed")), 2);
-    assert_eq!(u(&r, &u("bins_used")), 32);
+    let un = |p: &str| format!("/uniformity/{p}");
+    assert_eq!(u(&r, &un("bin_size")), 20);
+    assert_eq!(u(&r, &un("bins_total")), 35);
+    assert_eq!(u(&r, &un("bins_excluded_n")), 1);
+    assert_eq!(u(&r, &un("bins_excluded_bed")), 2);
+    assert_eq!(u(&r, &un("bins_used")), 32);
     // 7 used bins hold a read; with 25 empty bins the median is 0, so PMAD
     // is undefined.
-    assert_eq!(u(&r, &u("zero_bins_dropped")), 25);
-    assert!(get(&r, &u("pmad")).is_null());
+    assert_eq!(u(&r, &un("zero_bins_dropped")), 25);
+    assert!(get(&r, &un("pmad")).is_null());
     let w = get(&r, "/warnings").as_array().unwrap();
     assert!(
         w.iter().any(|w| w.as_str().unwrap().contains("chrZ")),
