@@ -1,0 +1,43 @@
+name: Release
+
+on:
+  push:
+    tags: ["v*"]
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: x86_64-unknown-linux-musl
+      - run: sudo apt-get update && sudo apt-get install -y musl-tools samtools
+      - run: cargo test --locked
+      - name: Build static binary
+        env:
+          CC_x86_64_unknown_linux_musl: musl-gcc
+        run: cargo build --release --locked --target x86_64-unknown-linux-musl
+      - name: Package
+        run: |
+          set -euo pipefail
+          VERSION="${GITHUB_REF_NAME}"
+          PKG="warpqc-${VERSION}-x86_64-unknown-linux-musl"
+          BIN=target/x86_64-unknown-linux-musl/release/warpqc
+          file "$BIN" | grep -q 'statically linked'
+          test "v$("$BIN" --version | awk '{print $2}')" = "$VERSION"
+          mkdir "$PKG"
+          cp "$BIN" README.md LICENSE "$PKG/"
+          tar czf "$PKG.tar.gz" "$PKG"
+          sha256sum "$PKG.tar.gz" > "$PKG.tar.gz.sha256"
+          echo "PKG=$PKG" >> "$GITHUB_ENV"
+      - name: Create release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release create "$GITHUB_REF_NAME" "$PKG.tar.gz" "$PKG.tar.gz.sha256" \
+            --title "WarpQC $GITHUB_REF_NAME" \
+            --notes "Static Linux x86_64 build. See README.md for usage and SPEC.md for metric definitions."

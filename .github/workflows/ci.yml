@@ -1,0 +1,49 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  test:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt, clippy
+      - uses: Swatinem/rust-cache@v2
+      # samtools makes the flagstat cross-check and BAM tests run instead of skip.
+      - run: sudo apt-get update && sudo apt-get install -y samtools
+      - run: cargo fmt --check
+      - run: cargo clippy --all-targets -- -D warnings
+      - run: cargo test
+
+  build-musl:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: x86_64-unknown-linux-musl
+      - uses: Swatinem/rust-cache@v2
+      - run: sudo apt-get update && sudo apt-get install -y musl-tools
+      - name: Build static binary
+        env:
+          CC_x86_64_unknown_linux_musl: musl-gcc
+        run: cargo build --release --locked --target x86_64-unknown-linux-musl
+      - name: Check it is static and runs
+        run: |
+          BIN=target/x86_64-unknown-linux-musl/release/warpqc
+          file "$BIN"
+          file "$BIN" | grep -q 'statically linked'
+          "$BIN" --version
+      - uses: actions/upload-artifact@v4
+        with:
+          name: warpqc-x86_64-unknown-linux-musl
+          path: target/x86_64-unknown-linux-musl/release/warpqc

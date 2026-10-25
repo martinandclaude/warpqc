@@ -12,14 +12,22 @@ and the JSON report. HTML, MultiQC output, PMAD/GC uniformity and QC thresholds
 come in v0.2. [SPEC.md](SPEC.md) is the design document and states every metric
 definition.
 
-## Build
+## Install
+
+Static Linux x86_64 binaries are attached to each
+[GitHub release](https://github.com/martinandclaude/warpqc/releases):
+
+```bash
+curl -LO https://github.com/martinandclaude/warpqc/releases/download/v0.1.0/warpqc-v0.1.0-x86_64-unknown-linux-musl.tar.gz
+```
+
+Every push to `main` also builds the static binary as a CI artifact.
+
+To build from source:
 
 ```bash
 cargo build --release
 ```
-
-The binary is `target/release/warpqc`. The production target is a static
-`x86_64-unknown-linux-musl` build, made on Linux.
 
 ## Usage
 
@@ -107,3 +115,7 @@ The unit fixtures are hand-written SAM files in `tests/fixtures/sam/`. Each one
 lists its hand-derived expected values in `@CO` header lines. Every fixture is run
 with 1 worker and with 4 workers on tiny blocks, and the two reports must be
 identical. Some tests also cross-check against `samtools` when it is installed.
+
+## License
+
+Apache-2.0, see [LICENSE](LICENSE).
