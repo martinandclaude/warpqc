@@ -1,0 +1,30 @@
+@HD	VN:1.6	SO:unsorted	GO:query
+@SQ	SN:chr1	LN:400
+@SQ	SN:chr2	LN:300
+@SQ	SN:chrM	LN:100
+@SQ	SN:chrUn_decoy	LN:100
+@PG	ID:hand	PN:hand-written
+@CO	Optical duplicates: single linkage, per-axis box distance <= 2500 (Picard closeEnough).
+@CO	Group 1 (chr1 11 fwd / 101 rev), lane FCA:1 tile 1101 unless noted:
+@CO	  A (1000,1000)  B (3000,3000)  C (5000,5000): A-B and B-C close in the box metric
+@CO	  (Euclidean 2828 > 2500 would not link them); A-C far. One cluster of 3 -> 2 optical.
+@CO	  G (1500,1000): close to A, but R1 is reverse -> other optical orientation class -> 0
+@CO	  D (1000,1000) in lane FCA:2: same tile number, other lane -> not optical; cross-lane
+@CO	Group 2 (chr2 21 fwd / 121 rev): E (1000,5000), F (11000,5000) tile 1102 -> not optical
+@CO	Expected: pairs 7, duplicate pairs 5 (group 1: 4, group 2: 1), optical 2,
+@CO	  cross-lane fraction 4/5; per lane (keeper = lowest lane,tile,x,y):
+@CO	  FCA:1 pairs 6, duplicate pairs 4, optical 2; FCA:2 pairs 1, duplicate pairs 1
+A:1:FCA:1:1101:1000:1000	99	chr1	11	60	10M	=	101	100	ACGTACGTAC	IIIIIIIIII	NM:i:0
+A:1:FCA:1:1101:1000:1000	147	chr1	101	60	10M	=	11	-100	ACGTACGTAC	IIIIIIIIII	NM:i:0
+B:1:FCA:1:1101:3000:3000	99	chr1	11	60	10M	=	101	100	ACGTACGTAC	IIIIIIIIII	NM:i:0
+B:1:FCA:1:1101:3000:3000	147	chr1	101	60	10M	=	11	-100	ACGTACGTAC	IIIIIIIIII	NM:i:0
+C:1:FCA:1:1101:5000:5000	99	chr1	11	60	10M	=	101	100	ACGTACGTAC	IIIIIIIIII	NM:i:0
+C:1:FCA:1:1101:5000:5000	147	chr1	101	60	10M	=	11	-100	ACGTACGTAC	IIIIIIIIII	NM:i:0
+G:1:FCA:1:1101:1500:1000	163	chr1	11	60	10M	=	101	100	ACGTACGTAC	IIIIIIIIII	NM:i:0
+G:1:FCA:1:1101:1500:1000	83	chr1	101	60	10M	=	11	-100	ACGTACGTAC	IIIIIIIIII	NM:i:0
+D:1:FCA:2:1101:1000:1000	99	chr1	11	60	10M	=	101	100	ACGTACGTAC	IIIIIIIIII	NM:i:0
+D:1:FCA:2:1101:1000:1000	147	chr1	101	60	10M	=	11	-100	ACGTACGTAC	IIIIIIIIII	NM:i:0
+E:1:FCA:1:1102:1000:5000	99	chr2	21	60	10M	=	121	110	ACGTACGTAC	IIIIIIIIII	NM:i:0
+E:1:FCA:1:1102:1000:5000	147	chr2	121	60	10M	=	21	-110	ACGTACGTAC	IIIIIIIIII	NM:i:0
+F:1:FCA:1:1102:11000:5000	99	chr2	21	60	10M	=	121	110	ACGTACGTAC	IIIIIIIIII	NM:i:0
+F:1:FCA:1:1102:11000:5000	147	chr2	121	60	10M	=	21	-110	ACGTACGTAC	IIIIIIIIII	NM:i:0

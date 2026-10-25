@@ -2,7 +2,10 @@
 
 pub mod error;
 pub mod input;
+pub mod metrics;
+pub mod pipeline;
 pub mod readname;
 pub mod record;
 pub mod reference;
 pub mod report;
+pub mod summary;

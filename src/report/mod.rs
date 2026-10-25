@@ -1,5 +1,7 @@
 //! Report output. v0.1 writes JSON only.
 
+pub mod json;
+
 use std::io::Write;
 use std::path::Path;
 

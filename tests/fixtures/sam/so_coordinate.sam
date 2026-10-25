@@ -1,0 +1,9 @@
+@HD	VN:1.6	SO:coordinate
+@SQ	SN:chr1	LN:400
+@SQ	SN:chr2	LN:300
+@SQ	SN:chrM	LN:100
+@SQ	SN:chrUn_decoy	LN:100
+@PG	ID:hand	PN:hand-written
+@CO	Coordinate-sorted header: rejected with exit code 2.
+a:1:FCA:1:1101:1:1	99	chr1	11	60	10M	=	101	100	ACGTACGTAC	IIIIIIIIII	NM:i:0
+a:1:FCA:1:1101:1:1	147	chr1	101	60	10M	=	11	-100	ACGTACGTAC	IIIIIIIIII	NM:i:0
