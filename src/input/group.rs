@@ -74,7 +74,12 @@ impl Grouper {
         Ok(())
     }
 
-    fn emit(&self, qname: &[u8], n: usize, f: &mut impl FnMut(&Template) -> Result<()>) -> Result<()> {
+    fn emit(
+        &self,
+        qname: &[u8],
+        n: usize,
+        f: &mut impl FnMut(&Template) -> Result<()>,
+    ) -> Result<()> {
         let alns = &self.pool[..n];
         let mut t = Template {
             qname,

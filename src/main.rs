@@ -93,7 +93,9 @@ fn run_cmd(a: RunArgs) -> Result<()> {
     if a.threads == 0 {
         return Err(input("--threads must be at least 1"));
     }
-    let _ = rayon::ThreadPoolBuilder::new().num_threads(a.threads).build_global();
+    let _ = rayon::ThreadPoolBuilder::new()
+        .num_threads(a.threads)
+        .build_global();
     let mut cfg = RunConfig::new(
         &a.sample,
         a.reference,
@@ -108,7 +110,9 @@ fn run_cmd(a: RunArgs) -> Result<()> {
         optical_distance: a.optical_distance,
         raw: !a.no_raw,
     };
-    cfg.depth_thresholds = a.depth_thresholds.unwrap_or_else(|| DEFAULT_THRESHOLDS.to_vec());
+    cfg.depth_thresholds = a
+        .depth_thresholds
+        .unwrap_or_else(|| DEFAULT_THRESHOLDS.to_vec());
     cfg.library = a.library.unwrap_or_default();
     cfg.expect_reads = a.expect_reads;
     cfg.block_size = a.block_size;
@@ -127,7 +131,9 @@ fn main() -> ExitCode {
     let cli = Cli::parse();
     let res = match cli.cmd {
         Cmd::Run(a) => run_cmd(a),
-        Cmd::PrepareRef { reference, out } => Reference::from_fasta(&reference).and_then(|r| r.write_cache(&out)),
+        Cmd::PrepareRef { reference, out } => {
+            Reference::from_fasta(&reference).and_then(|r| r.write_cache(&out))
+        }
     };
     match res {
         Ok(()) => ExitCode::SUCCESS,

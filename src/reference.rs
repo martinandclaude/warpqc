@@ -80,9 +80,8 @@ fn read_fai(fasta: &Path) -> Result<(Vec<FaiEntry>, String)> {
             continue;
         }
         let f: Vec<&[u8]> = line.split(|&c| c == b'\t').collect();
-        let num = |k: usize| -> Option<u64> {
-            std::str::from_utf8(f.get(k)?).ok()?.trim().parse().ok()
-        };
+        let num =
+            |k: usize| -> Option<u64> { std::str::from_utf8(f.get(k)?).ok()?.trim().parse().ok() };
         let bad = || input(format!("{}: malformed line {}", path.display(), i + 1));
         entries.push(FaiEntry {
             name: String::from_utf8_lossy(f[0]).into_owned(),
@@ -173,8 +172,12 @@ impl Reference {
     /// FASTA's `.fai`.
     pub fn from_cache(cache: &Path, fasta: &Path) -> Result<Reference> {
         let f = File::open(cache).ctx(format!("opening {}", cache.display()))?;
-        let c: CacheFile = serde_json::from_reader(BufReader::new(f))
-            .map_err(|e| input(format!("{} is not a WarpQC reference cache: {e}", cache.display())))?;
+        let c: CacheFile = serde_json::from_reader(BufReader::new(f)).map_err(|e| {
+            input(format!(
+                "{} is not a WarpQC reference cache: {e}",
+                cache.display()
+            ))
+        })?;
         if c.format != CACHE_FORMAT || c.version != CACHE_VERSION {
             return Err(input(format!(
                 "{} has cache format {} v{}; expected {CACHE_FORMAT} v{CACHE_VERSION}; re-run prepare-ref",
@@ -271,10 +274,16 @@ impl AnalysisSet {
                     .map(|i| i.to_string())
                     .chain(["X", "Y", "MT"].map(String::from))
                     .collect();
-                let present = |v: &[String]| v.iter().filter(|n| reference.index_of(n).is_some()).count();
-                let pick = if present(&chr) >= present(&bare) { chr } else { bare };
-                let (have, miss): (Vec<String>, Vec<String>) =
-                    pick.into_iter().partition(|n| reference.index_of(n).is_some());
+                let present =
+                    |v: &[String]| v.iter().filter(|n| reference.index_of(n).is_some()).count();
+                let pick = if present(&chr) >= present(&bare) {
+                    chr
+                } else {
+                    bare
+                };
+                let (have, miss): (Vec<String>, Vec<String>) = pick
+                    .into_iter()
+                    .partition(|n| reference.index_of(n).is_some());
                 missing_defaults = miss;
                 have
             }
@@ -346,6 +355,11 @@ mod tests {
         let l = AnalysisSet::resolve(&r, Some("chr2,chr1")).unwrap();
         assert_eq!(l.contigs, vec![0, 1]);
         assert!(AnalysisSet::resolve(&r, Some("chr1,chr9")).is_err());
-        assert!(is_autosome("chr7") && is_autosome("22") && !is_autosome("chrX") && !is_autosome("chr23"));
+        assert!(
+            is_autosome("chr7")
+                && is_autosome("22")
+                && !is_autosome("chrX")
+                && !is_autosome("chr23")
+        );
     }
 }

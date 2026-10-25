@@ -12,7 +12,7 @@ use crate::input::sam::{Blocker, LineSource, OrderStats, SamSource};
 use crate::metrics::coverage::Coverage;
 use crate::metrics::dups::DupTable;
 use crate::metrics::optical::{DupAnalysis, analyze_group};
-use crate::metrics::{Layout, Lanes, Local, Params, Shared, UNKNOWN_LANE, process};
+use crate::metrics::{Lanes, Layout, Local, Params, Shared, UNKNOWN_LANE, process};
 use crate::record::TidMap;
 use crate::reference::{AnalysisSet, Reference};
 use crate::report::json::*;
@@ -79,7 +79,10 @@ impl<S: LineSource + ?Sized> LineSource for Box<S> {
 
 fn open_input(path: Option<&PathBuf>) -> Result<Box<dyn LineSource>> {
     let (mut r, name): (Box<dyn BufRead + Send>, String) = match path {
-        None => (Box::new(BufReader::with_capacity(1 << 22, std::io::stdin())), "stdin".into()),
+        None => (
+            Box::new(BufReader::with_capacity(1 << 22, std::io::stdin())),
+            "stdin".into(),
+        ),
         Some(p) => (
             Box::new(BufReader::with_capacity(
                 1 << 22,
@@ -123,19 +126,24 @@ pub fn run(cfg: &RunConfig) -> Result<Outcome> {
 
     let (order, local) = stream(src, &shared, &tids, cfg)?;
 
-    if let Some(expect) = cfg.expect_reads {
-        if order.templates != expect {
-            return Err(input(format!(
-                "read {} templates but --expect-reads is {expect}; the stream was truncated or the count is wrong",
-                order.templates
-            )));
-        }
+    if let Some(expect) = cfg.expect_reads
+        && order.templates != expect
+    {
+        return Err(input(format!(
+            "read {} templates but --expect-reads is {expect}; the stream was truncated or the count is wrong",
+            order.templates
+        )));
     }
 
     finish(shared, local, order, &reference, cfg, warnings)
 }
 
-fn stream(src: Box<dyn LineSource>, sh: &Shared, tids: &TidMap, cfg: &RunConfig) -> Result<(OrderStats, Local)> {
+fn stream(
+    src: Box<dyn LineSource>,
+    sh: &Shared,
+    tids: &TidMap,
+    cfg: &RunConfig,
+) -> Result<(OrderStats, Local)> {
     let mut blocker = Blocker::new(src, cfg.block_size);
     let abort = AtomicBool::new(false);
     let threads = cfg.threads.max(1);
@@ -172,7 +180,9 @@ fn stream(src: Box<dyn LineSource>, sh: &Shared, tids: &TidMap, cfg: &RunConfig)
                         if abort.load(Ordering::Relaxed) {
                             continue;
                         }
-                        if let Err(e) = g.for_each_template(&block.data, &mut tids, |t| process(t, sh, &mut lo)) {
+                        if let Err(e) =
+                            g.for_each_template(&block.data, &mut tids, |t| process(t, sh, &mut lo))
+                        {
                             abort.store(true, Ordering::Relaxed);
                             return Err(e);
                         }
@@ -222,7 +232,10 @@ fn finish(
     }
     let nl = lane_names.len();
     let d = cfg.params.optical_distance;
-    let parts = sh.dups.for_each_group(|| DupAnalysis::new(nl), |acc, m| analyze_group(m, &rank, d, acc));
+    let parts = sh.dups.for_each_group(
+        || DupAnalysis::new(nl),
+        |acc, m| analyze_group(m, &rank, d, acc),
+    );
     let mut da = DupAnalysis::new(nl);
     for p in &parts {
         da.merge(p);
@@ -237,7 +250,8 @@ fn finish(
             crate::input::sam::MAX_INCOMPLETE_FRACTION * 100.0
         ));
     }
-    let optical_ok = (lo.unparsed_names as f64) <= MAX_UNPARSED_FOR_OPTICAL * lo.align.templates as f64;
+    let optical_ok =
+        (lo.unparsed_names as f64) <= MAX_UNPARSED_FOR_OPTICAL * lo.align.templates as f64;
     if lo.unparsed_names > 0 {
         warnings.push(format!(
             "{} of {} read names are not Illumina instrument:run:flowcell:lane:tile:x:y; they are pooled in lane \"{}\" \
@@ -293,18 +307,23 @@ fn finish(
     let fsweep = depth::sweep(sh.coverage.filtered.as_slice(), layout);
     let counted: u64 = fsweep.per_contig.iter().map(|p| p.0).sum();
     let filtered = depth::report(&fsweep, layout, &cfg.depth_thresholds);
-    let raw = sh
-        .coverage
-        .raw
-        .as_ref()
-        .map(|r| depth::report(&depth::sweep(r.as_slice(), layout), layout, &cfg.depth_thresholds));
+    let raw = sh.coverage.raw.as_ref().map(|r| {
+        depth::report(
+            &depth::sweep(r.as_slice(), layout),
+            layout,
+            &cfg.depth_thresholds,
+        )
+    });
 
     let mut depth_copy = Vec::new();
     if cfg.keep_depth {
         let f = sh.coverage.filtered.snapshot();
         let r = sh.coverage.raw.as_ref().map(|r| r.snapshot());
         for &tid in &layout.analysis {
-            let (o, l) = (layout.offset[tid as usize] as usize, layout.lens[tid as usize] as usize);
+            let (o, l) = (
+                layout.offset[tid as usize] as usize,
+                layout.lens[tid as usize] as usize,
+            );
             depth_copy.push((
                 layout.names[tid as usize].clone(),
                 f[o..o + l].to_vec(),
@@ -324,7 +343,10 @@ fn finish(
         },
         sample: cfg.sample.clone(),
         inputs: Inputs {
-            input: cfg.input.as_ref().map_or("-".into(), |p| p.display().to_string()),
+            input: cfg
+                .input
+                .as_ref()
+                .map_or("-".into(), |p| p.display().to_string()),
             reference: cfg.reference.display().to_string(),
             reference_md5: reference.digest(),
             lanes: lanes_sorted,
@@ -335,8 +357,16 @@ fn finish(
             optical_distance: cfg.params.optical_distance,
             depth_thresholds: cfg.depth_thresholds.clone(),
             raw_depth: cfg.params.raw,
-            library: if cfg.library.is_empty() { cfg.sample.clone() } else { cfg.library.clone() },
-            analysis_contigs: layout.analysis.iter().map(|&t| layout.names[t as usize].clone()).collect(),
+            library: if cfg.library.is_empty() {
+                cfg.sample.clone()
+            } else {
+                cfg.library.clone()
+            },
+            analysis_contigs: layout
+                .analysis
+                .iter()
+                .map(|&t| layout.names[t as usize].clone())
+                .collect(),
         },
         definitions: definitions(),
         warnings,

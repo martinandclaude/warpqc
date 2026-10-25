@@ -94,7 +94,14 @@ pub fn report(s: &DepthSweep, layout: &Layout, thresholds: &[u32]) -> DepthRepor
     for (k, &tid) in layout.analysis.iter().enumerate() {
         let name = &layout.names[tid as usize];
         let (sum, terr) = s.per_contig[k];
-        per_contig.insert(name.clone(), if terr > 0 { sum as f64 / terr as f64 } else { 0.0 });
+        per_contig.insert(
+            name.clone(),
+            if terr > 0 {
+                sum as f64 / terr as f64
+            } else {
+                0.0
+            },
+        );
         if is_autosome(name) {
             asum += sum;
             aterr += terr;

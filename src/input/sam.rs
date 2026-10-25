@@ -39,7 +39,11 @@ impl<R: BufRead + Send> SamSource<R> {
         let mut line = Vec::new();
         loop {
             line.clear();
-            if inner.read_until(b'\n', &mut line).ctx("reading SAM header")? == 0 {
+            if inner
+                .read_until(b'\n', &mut line)
+                .ctx("reading SAM header")?
+                == 0
+            {
                 break;
             }
             if line.first() != Some(&b'@') {
@@ -122,9 +126,11 @@ pub struct Blocker<S> {
 
 fn qname_and_flag(line: &[u8]) -> Result<(&[u8], u16)> {
     let shown = || String::from_utf8_lossy(&line[..line.len().min(120)]).into_owned();
-    let t1 = memchr::memchr(b'\t', line).ok_or_else(|| input(format!("malformed SAM record: {}", shown())))?;
+    let t1 = memchr::memchr(b'\t', line)
+        .ok_or_else(|| input(format!("malformed SAM record: {}", shown())))?;
     let rest = &line[t1 + 1..];
-    let t2 = memchr::memchr(b'\t', rest).ok_or_else(|| input(format!("malformed SAM record: {}", shown())))?;
+    let t2 = memchr::memchr(b'\t', rest)
+        .ok_or_else(|| input(format!("malformed SAM record: {}", shown())))?;
     let f = parse_u32(&rest[..t2])
         .and_then(|v| u16::try_from(v).ok())
         .ok_or_else(|| input(format!("malformed SAM FLAG: {}", shown())))?;
@@ -159,7 +165,7 @@ impl<S: LineSource> Blocker<S> {
         if !self.group.complete() {
             self.stats.incomplete += 1;
         }
-        if self.stats.templates % CHECK_EVERY == 0 {
+        if self.stats.templates.is_multiple_of(CHECK_EVERY) {
             self.check_incomplete()?;
         }
         let h = self.hasher.hash_one(&self.cur_name);
@@ -189,7 +195,9 @@ impl<S: LineSource> Blocker<S> {
     /// new template.
     fn observe(&mut self, line: &[u8]) -> Result<bool> {
         if line.last() != Some(&b'\n') {
-            return Err(input("input ends in the middle of a SAM record; the stream was truncated"));
+            return Err(input(
+                "input ends in the middle of a SAM record; the stream was truncated",
+            ));
         }
         let (name, f) = qname_and_flag(line)?;
         let new = name != self.cur_name.as_slice();
@@ -245,7 +253,11 @@ impl<S: LineSource> Blocker<S> {
             if !self.src.next_line(&mut data)? {
                 self.finish()?;
                 self.done = true;
-                return Ok(if data.is_empty() { None } else { Some(Block { data }) });
+                return Ok(if data.is_empty() {
+                    None
+                } else {
+                    Some(Block { data })
+                });
             }
             let new_template = self.observe(&data[start..])?;
             if new_template && start >= self.block_size {
@@ -259,9 +271,7 @@ impl<S: LineSource> Blocker<S> {
 
 /// Splits a block into lines without the trailing newline.
 pub fn lines(block: &[u8]) -> impl Iterator<Item = &[u8]> {
-    block
-        .split(|&c| c == b'\n')
-        .filter(|l| !l.is_empty())
+    block.split(|&c| c == b'\n').filter(|l| !l.is_empty())
 }
 
 #[cfg(test)]
@@ -293,7 +303,10 @@ mod tests {
         let text = format!("@HD\tVN:1.6\n@SQ\tSN:chr1\tLN:10\n{}", pair("a"));
         let b = blocker(&text, 1000);
         assert_eq!(b.header(), "@HD\tVN:1.6\n@SQ\tSN:chr1\tLN:10\n");
-        assert_eq!(collect(&text, 1000).unwrap().concat(), pair("a").into_bytes());
+        assert_eq!(
+            collect(&text, 1000).unwrap().concat(),
+            pair("a").into_bytes()
+        );
     }
 
     #[test]
@@ -312,7 +325,10 @@ mod tests {
                     a\t147\tchr1\t50\t60\t4M\t=\t1\t-53\tACGT\tIIII\n\
                     b\t147\tchr1\t60\t60\t4M\t=\t10\t-54\tACGT\tIIII\n";
         let e = collect(text, 1).unwrap_err();
-        assert!(e.to_string().contains("not in aligner") || e.to_string().contains("reappears"), "{e}");
+        assert!(
+            e.to_string().contains("not in aligner") || e.to_string().contains("reappears"),
+            "{e}"
+        );
         // Every template is incomplete even when no name reappears.
         let text2 = "a\t99\tchr1\t1\t60\t4M\t=\t50\t53\tACGT\tIIII\n\
                      b\t147\tchr1\t60\t60\t4M\t=\t10\t-54\tACGT\tIIII\n";
@@ -325,7 +341,12 @@ mod tests {
         let full = format!("{}{}", pair("a"), pair("b"));
         // Cut in the middle of the final line.
         let cut = &full[..full.len() - 5];
-        assert!(collect(cut, 10).unwrap_err().to_string().contains("truncated"));
+        assert!(
+            collect(cut, 10)
+                .unwrap_err()
+                .to_string()
+                .contains("truncated")
+        );
         // Cut after R1 of the final template.
         let last_line = pair("b").lines().nth(1).unwrap().len() + 1;
         let cut2 = &full[..full.len() - last_line];

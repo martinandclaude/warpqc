@@ -27,7 +27,12 @@ impl PairKey {
     pub fn new(library: u8, a: u64, b: u64) -> PairKey {
         let (lo, hi) = if a <= b { (a, b) } else { (b, a) };
         let v = ((library as u128) << 98) | ((lo as u128) << 49) | hi as u128;
-        PairKey([v as u32, (v >> 32) as u32, (v >> 64) as u32, (v >> 96) as u32])
+        PairKey([
+            v as u32,
+            (v >> 32) as u32,
+            (v >> 64) as u32,
+            (v >> 96) as u32,
+        ])
     }
 }
 
@@ -182,7 +187,10 @@ mod tests {
         let m = Member::default();
         assert!(t.insert_pair(k, m));
         assert!(!t.insert_pair(k, m));
-        assert!(t.insert_pair(PairKey::new(0, pack_end(0, 10, false), pack_end(0, 111, true)), m));
+        assert!(t.insert_pair(
+            PairKey::new(0, pack_end(0, 10, false), pack_end(0, 111, true)),
+            m
+        ));
         assert!(t.insert_frag(frag_key(0, pack_end(1, 50, false))));
         assert!(!t.insert_frag(frag_key(0, pack_end(1, 50, false))));
         assert!(t.insert_frag(frag_key(0, pack_end(1, 50, true))));
@@ -194,9 +202,17 @@ mod tests {
         let mut t = DupTable::new(None);
         let k = PairKey::new(0, pack_end(2, 5, false), pack_end(2, 90, true));
         for x in [7, 3, 9] {
-            t.insert_pair(k, Member { x, ..Default::default() });
+            t.insert_pair(
+                k,
+                Member {
+                    x,
+                    ..Default::default()
+                },
+            );
         }
-        let got = t.for_each_group(Vec::new, |acc, m| acc.push(m.iter().map(|m| m.x).collect::<Vec<_>>()));
+        let got = t.for_each_group(Vec::new, |acc, m| {
+            acc.push(m.iter().map(|m| m.x).collect::<Vec<_>>())
+        });
         let groups: Vec<_> = got.into_iter().flatten().collect();
         assert_eq!(groups, vec![vec![7, 3, 9]]);
     }

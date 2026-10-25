@@ -27,7 +27,11 @@ pub fn orientation(a: &Aln, b: &Aln) -> Orientation {
         return Orientation::Tandem;
     }
     let (fwd, rev) = if a.is_reverse() { (b, a) } else { (a, b) };
-    if fwd.pos <= rev.end() - 1 { Orientation::Fr } else { Orientation::Rf }
+    if fwd.pos < rev.end() {
+        Orientation::Fr
+    } else {
+        Orientation::Rf
+    }
 }
 
 #[derive(Debug, Clone, Default)]
@@ -69,7 +73,9 @@ impl InsertStats {
     }
 
     pub fn report(&self) -> InsertReport {
-        let total: u64 = (0..3).map(|k| hist::count(&self.hist[k]) + self.overflow[k]).sum();
+        let total: u64 = (0..3)
+            .map(|k| hist::count(&self.hist[k]) + self.overflow[k])
+            .sum();
         let orient = |k: usize| OrientationReport::new(&self.hist[k], self.overflow[k], total);
         InsertReport {
             fr: orient(0),
@@ -119,7 +125,11 @@ impl OrientationReport {
         if n == 0 {
             return OrientationReport {
                 pairs,
-                fraction: if total > 0 { pairs as f64 / total as f64 } else { 0.0 },
+                fraction: if total > 0 {
+                    pairs as f64 / total as f64
+                } else {
+                    0.0
+                },
                 above_max: overflow,
                 histogram_overflow: overflow,
                 ..Default::default()

@@ -54,12 +54,16 @@ pub fn get<'a>(v: &'a Value, ptr: &str) -> &'a Value {
 }
 
 pub fn u(v: &Value, ptr: &str) -> u64 {
-    get(v, ptr).as_u64().unwrap_or_else(|| panic!("{ptr} is not an integer: {}", get(v, ptr)))
+    get(v, ptr)
+        .as_u64()
+        .unwrap_or_else(|| panic!("{ptr} is not an integer: {}", get(v, ptr)))
 }
 
 #[track_caller]
 pub fn close(v: &Value, ptr: &str, want: f64) {
-    let got = get(v, ptr).as_f64().unwrap_or_else(|| panic!("{ptr} is not a number"));
+    let got = get(v, ptr)
+        .as_f64()
+        .unwrap_or_else(|| panic!("{ptr} is not a number"));
     assert!((got - want).abs() < 1e-9, "{ptr}: got {got}, want {want}");
 }
 

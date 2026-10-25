@@ -12,7 +12,9 @@ pub struct Header {
 }
 
 fn tag<'a>(line: &'a str, key: &str) -> Option<&'a str> {
-    line.split('\t').skip(1).find_map(|f| f.strip_prefix(key)?.strip_prefix(':'))
+    line.split('\t')
+        .skip(1)
+        .find_map(|f| f.strip_prefix(key)?.strip_prefix(':'))
 }
 
 impl Header {
@@ -23,7 +25,8 @@ impl Header {
                 h.sort_order = tag(line, "SO").map(String::from);
                 h.group_order = tag(line, "GO").map(String::from);
             } else if line.starts_with("@SQ") {
-                let name = tag(line, "SN").ok_or_else(|| input(format!("@SQ line without SN: {line}")))?;
+                let name =
+                    tag(line, "SN").ok_or_else(|| input(format!("@SQ line without SN: {line}")))?;
                 let len = tag(line, "LN")
                     .and_then(|l| l.parse().ok())
                     .ok_or_else(|| input(format!("@SQ line without a valid LN: {line}")))?;
@@ -82,18 +85,26 @@ mod tests {
     use std::path::PathBuf;
 
     fn mini() -> Reference {
-        Reference::from_fasta(&PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/ref/mini.fa"))
-            .unwrap()
+        Reference::from_fasta(
+            &PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/ref/mini.fa"),
+        )
+        .unwrap()
     }
 
     const SQ: &str = "@SQ\tSN:chr1\tLN:400\n@SQ\tSN:chr2\tLN:300\n@SQ\tSN:chrM\tLN:100\n@SQ\tSN:chrUn_decoy\tLN:100\n";
 
     #[test]
     fn accepts_matching_header_in_any_order() {
-        let h = Header::parse(&format!("@HD\tVN:1.6\tSO:unsorted\tGO:query\n{SQ}@PG\tID:minibwa\n")).unwrap();
+        let h = Header::parse(&format!(
+            "@HD\tVN:1.6\tSO:unsorted\tGO:query\n{SQ}@PG\tID:minibwa\n"
+        ))
+        .unwrap();
         assert_eq!(h.check(&mini()).unwrap(), vec![0, 1, 2, 3]);
         let swapped = "@SQ\tSN:chr2\tLN:300\n@SQ\tSN:chr1\tLN:400\n@SQ\tSN:chrM\tLN:100\n@SQ\tSN:chrUn_decoy\tLN:100\n";
-        assert_eq!(Header::parse(swapped).unwrap().check(&mini()).unwrap(), vec![1, 0, 2, 3]);
+        assert_eq!(
+            Header::parse(swapped).unwrap().check(&mini()).unwrap(),
+            vec![1, 0, 2, 3]
+        );
         // queryname order keeps templates together, so it is accepted.
         let qn = Header::parse(&format!("@HD\tVN:1.6\tSO:queryname\n{SQ}")).unwrap();
         assert!(qn.check(&mini()).is_ok());
@@ -116,7 +127,14 @@ mod tests {
             SQ.replace("@SQ\tSN:chrM\tLN:100\n", ""),
             String::new(),
         ] {
-            assert_eq!(Header::parse(&bad).unwrap().check(&r).unwrap_err().exit_code(), 2);
+            assert_eq!(
+                Header::parse(&bad)
+                    .unwrap()
+                    .check(&r)
+                    .unwrap_err()
+                    .exit_code(),
+                2
+            );
         }
     }
 }

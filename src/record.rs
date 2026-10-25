@@ -200,10 +200,10 @@ impl TidMap {
         if name == b"*" {
             return Some(-1);
         }
-        if let Some((n, t)) = &self.last {
-            if n.as_slice() == name {
-                return Some(*t);
-            }
+        if let Some((n, t)) = &self.last
+            && n.as_slice() == name
+        {
+            return Some(*t);
         }
         let t = *self.map.get(name)?;
         self.last = Some((name.to_vec(), t));
@@ -411,6 +411,9 @@ mod tests {
         let a = parse("r\t99\tchr1\t11\t60\t2S3M1I2M2D3=1X\t=\t1\t0\tAAAAAAAAAAAA\t*");
         let mut blocks = vec![];
         a.for_each_match_block(|r, q, l| blocks.push((r, q, l)));
-        assert_eq!(blocks, vec![(10, 2, 3), (13, 6, 2), (17, 8, 3), (20, 11, 1)]);
+        assert_eq!(
+            blocks,
+            vec![(10, 2, 3), (13, 6, 2), (17, 8, 3), (20, 11, 1)]
+        );
     }
 }

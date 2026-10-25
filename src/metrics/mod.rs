@@ -59,13 +59,22 @@ impl Layout {
         if tid_to_ref.len() > u16::MAX as usize + 1 {
             return Err(input("more than 65,536 @SQ contigs are not supported"));
         }
-        let names: Vec<String> = tid_to_ref.iter().map(|&r| reference.contigs[r].name.clone()).collect();
-        let lens: Vec<u64> = tid_to_ref.iter().map(|&r| reference.contigs[r].len).collect();
+        let names: Vec<String> = tid_to_ref
+            .iter()
+            .map(|&r| reference.contigs[r].name.clone())
+            .collect();
+        let lens: Vec<u64> = tid_to_ref
+            .iter()
+            .map(|&r| reference.contigs[r].len)
+            .collect();
         let mut offset = vec![u64::MAX; names.len()];
         let mut analysis = Vec::new();
         let mut total = 0u64;
         for &ri in &set.contigs {
-            let tid = tid_to_ref.iter().position(|&r| r == ri).expect("header covers the reference");
+            let tid = tid_to_ref
+                .iter()
+                .position(|&r| r == ri)
+                .expect("header covers the reference");
             offset[tid] = total;
             analysis.push(tid as u32);
             total += lens[tid];
@@ -120,7 +129,11 @@ impl Lanes {
     }
 
     pub fn names(&self) -> Vec<String> {
-        self.0.lock().iter().map(|k| String::from_utf8_lossy(k).into_owned()).collect()
+        self.0
+            .lock()
+            .iter()
+            .map(|k| String::from_utf8_lossy(k).into_owned())
+            .collect()
     }
 }
 
@@ -271,13 +284,20 @@ pub fn process(t: &Template, sh: &Shared, lo: &mut Local) -> Result<()> {
     let mut reads: [(&Aln, Class); 2] = [(&t.alns[0], Class::Pass); 2];
     let mut n = 0;
     for (k, a) in [r1, r2, t.get(t.single)].into_iter().enumerate() {
-        if let Some(a) = a.filter(|a| a.is_mapped() && !a.has(flag::QC_FAIL)) {
-            if n < 2 {
-                reads[n] = (a, coverage::classify(a, dup[k], &sh.params));
-                n += 1;
-            }
+        if let Some(a) = a.filter(|a| a.is_mapped() && !a.has(flag::QC_FAIL))
+            && n < 2
+        {
+            reads[n] = (a, coverage::classify(a, dup[k], &sh.params));
+            n += 1;
         }
     }
-    coverage::add_template(&reads[..n], &sh.coverage, &sh.layout, &sh.params, &mut lo.excl, &mut lo.scratch);
+    coverage::add_template(
+        &reads[..n],
+        &sh.coverage,
+        &sh.layout,
+        &sh.params,
+        &mut lo.excl,
+        &mut lo.scratch,
+    );
     Ok(())
 }

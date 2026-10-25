@@ -11,7 +11,15 @@ fn insert_size_picard_rules() {
     assert_eq!(u(&r, &i("mode")), 130);
     close(&r, &i("mean"), 154.0);
     close(&r, &i("sd"), 3330f64.sqrt());
-    assert_eq!((u(&r, &i("p10")), u(&r, &i("p25")), u(&r, &i("p75")), u(&r, &i("p90"))), (100, 130, 160, 250));
+    assert_eq!(
+        (
+            u(&r, &i("p10")),
+            u(&r, &i("p25")),
+            u(&r, &i("p75")),
+            u(&r, &i("p90"))
+        ),
+        (100, 130, 160, 250)
+    );
     assert_eq!((u(&r, &i("min")), u(&r, &i("max"))), (100, 250));
     assert_eq!(u(&r, &i("rf/pairs")), 1);
     assert_eq!(u(&r, &i("tandem/pairs")), 1);

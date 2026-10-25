@@ -74,9 +74,13 @@ pub struct InsertSize {
 
 impl From<InsertReport> for InsertSize {
     fn from(r: InsertReport) -> InsertSize {
-        let orientation_fractions = [("fr", r.fr.fraction), ("rf", r.rf.fraction), ("tandem", r.tandem.fraction)]
-            .into_iter()
-            .collect();
+        let orientation_fractions = [
+            ("fr", r.fr.fraction),
+            ("rf", r.rf.fraction),
+            ("tandem", r.tandem.fraction),
+        ]
+        .into_iter()
+        .collect();
         let mut rf = r.rf;
         let mut tandem = r.tandem;
         rf.histogram.clear();

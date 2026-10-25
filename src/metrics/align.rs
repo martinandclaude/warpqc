@@ -48,11 +48,30 @@ impl AlignStats {
     pub fn merge(&mut self, o: &AlignStats) {
         macro_rules! add { ($($f:ident),*) => { $( self.$f += o.$f; )* } }
         add!(
-            templates, records, primary_reads, secondary, supplementary, qc_fail, primary_mapped,
-            paired_reads, both_mapped_reads, properly_paired, singletons, mate_diff_chr,
-            mate_diff_chr_q5, both_mapped_pairs, chimeric_pairs_q5, off_target_reads, query_bases,
-            soft_clipped_bases, aligned_bases, insertion_events, deletion_events, nm_aligned_bases,
-            mismatches, reads_without_nm
+            templates,
+            records,
+            primary_reads,
+            secondary,
+            supplementary,
+            qc_fail,
+            primary_mapped,
+            paired_reads,
+            both_mapped_reads,
+            properly_paired,
+            singletons,
+            mate_diff_chr,
+            mate_diff_chr_q5,
+            both_mapped_pairs,
+            chimeric_pairs_q5,
+            off_target_reads,
+            query_bases,
+            soft_clipped_bases,
+            aligned_bases,
+            insertion_events,
+            deletion_events,
+            nm_aligned_bases,
+            mismatches,
+            reads_without_nm
         );
         self.mapq.resize(MAPQ_BINS, 0);
         for (a, b) in self.mapq.iter_mut().zip(o.mapq.iter()) {
@@ -93,7 +112,8 @@ impl AlignStats {
         if !layout.is_analysis(a.tid) {
             self.off_target_reads += 1;
         }
-        let (mut query, mut soft, mut aligned, mut ins_b, mut del_b) = (0u64, 0u64, 0u64, 0u64, 0u64);
+        let (mut query, mut soft, mut aligned, mut ins_b, mut del_b) =
+            (0u64, 0u64, 0u64, 0u64, 0u64);
         for &(o, l) in &a.cigar {
             let l = l as u64;
             if op::consumes_query(o) {
@@ -137,12 +157,13 @@ impl AlignStats {
                 self.add_primary(a, layout);
             }
         }
-        if let (Some(r1), Some(r2)) = (t.get(t.r1), t.get(t.r2)) {
-            if r1.is_mapped() && r2.is_mapped() {
-                self.both_mapped_pairs += 1;
-                if r1.tid != r2.tid && r1.mapq >= 5 && r2.mapq >= 5 {
-                    self.chimeric_pairs_q5 += 1;
-                }
+        if let (Some(r1), Some(r2)) = (t.get(t.r1), t.get(t.r2))
+            && r1.is_mapped()
+            && r2.is_mapped()
+        {
+            self.both_mapped_pairs += 1;
+            if r1.tid != r2.tid && r1.mapq >= 5 && r2.mapq >= 5 {
+                self.chimeric_pairs_q5 += 1;
             }
         }
     }
@@ -213,8 +234,13 @@ impl AlignStats {
             chimeric_pair_fraction: frac(self.chimeric_pairs_q5, self.both_mapped_pairs),
             off_target_fraction: frac(self.off_target_reads, mapped),
             soft_clipped_fraction: frac(self.soft_clipped_bases, self.query_bases),
-            mismatch_rate: (self.nm_aligned_bases > 0).then(|| frac(self.mismatches, self.nm_aligned_bases)),
-            indel_rate_per_100: 100.0 * frac(self.insertion_events + self.deletion_events, self.aligned_bases),
+            mismatch_rate: (self.nm_aligned_bases > 0)
+                .then(|| frac(self.mismatches, self.nm_aligned_bases)),
+            indel_rate_per_100: 100.0
+                * frac(
+                    self.insertion_events + self.deletion_events,
+                    self.aligned_bases,
+                ),
             aligned_bases: self.aligned_bases,
             reads_without_nm: self.reads_without_nm,
         }

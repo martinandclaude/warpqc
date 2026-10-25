@@ -11,7 +11,11 @@ pub fn mean(h: &[u64]) -> f64 {
     if n == 0 {
         return 0.0;
     }
-    let s: f64 = h.iter().enumerate().map(|(v, &c)| v as f64 * c as f64).sum();
+    let s: f64 = h
+        .iter()
+        .enumerate()
+        .map(|(v, &c)| v as f64 * c as f64)
+        .sum();
     s / n as f64
 }
 
@@ -37,7 +41,11 @@ fn median_sorted(pairs: impl Iterator<Item = (f64, u64)>, n: u64) -> f64 {
     if n == 0 {
         return 0.0;
     }
-    let (lo_rank, hi_rank) = if n % 2 == 0 { (n / 2, n / 2 + 1) } else { (n.div_ceil(2), n.div_ceil(2)) };
+    let (lo_rank, hi_rank) = if n.is_multiple_of(2) {
+        (n / 2, n / 2 + 1)
+    } else {
+        (n.div_ceil(2), n.div_ceil(2))
+    };
     let (mut lo, mut hi) = (None, None);
     let mut total = 0u64;
     for (v, c) in pairs {
@@ -166,6 +174,9 @@ mod tests {
     #[test]
     fn empty() {
         let x = vec![0u64; 5];
-        assert_eq!((median(&x), mad(&x), mean(&x), sd(&x)), (0.0, 0.0, 0.0, 0.0));
+        assert_eq!(
+            (median(&x), mad(&x), mean(&x), sd(&x)),
+            (0.0, 0.0, 0.0, 0.0)
+        );
     }
 }

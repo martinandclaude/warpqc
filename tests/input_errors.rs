@@ -8,15 +8,28 @@ fn warpqc(args: &[&str], input: &str, stdin: Option<&[u8]>) -> (Output, tempfile
     let dir = tempfile::tempdir().unwrap();
     let out = dir.path().join("S");
     let mut cmd = Command::new(env!("CARGO_BIN_EXE_warpqc"));
-    cmd.args(["run", "--sample", "S", "--threads", "2", "--contigs", "chr1,chr2,chrM", "--reference"])
-        .arg(reference())
-        .arg("--out")
-        .arg(&out)
-        .args(args)
-        .arg(input)
-        .stdin(if stdin.is_some() { Stdio::piped() } else { Stdio::null() })
-        .stdout(Stdio::piped())
-        .stderr(Stdio::piped());
+    cmd.args([
+        "run",
+        "--sample",
+        "S",
+        "--threads",
+        "2",
+        "--contigs",
+        "chr1,chr2,chrM",
+        "--reference",
+    ])
+    .arg(reference())
+    .arg("--out")
+    .arg(&out)
+    .args(args)
+    .arg(input)
+    .stdin(if stdin.is_some() {
+        Stdio::piped()
+    } else {
+        Stdio::null()
+    })
+    .stdout(Stdio::piped())
+    .stderr(Stdio::piped());
     let mut child = cmd.spawn().unwrap();
     if let Some(bytes) = stdin {
         use std::io::Write;
@@ -30,7 +43,11 @@ fn assert_input_error(name: &str, needle: &str) {
     let err = String::from_utf8_lossy(&o.stderr);
     assert_eq!(o.status.code(), Some(2), "{name}: {err}");
     assert!(err.contains(needle), "{name}: {err}");
-    assert_eq!(std::fs::read_dir(dir.path()).unwrap().count(), 0, "{name}: output written");
+    assert_eq!(
+        std::fs::read_dir(dir.path()).unwrap().count(),
+        0,
+        "{name}: output written"
+    );
 }
 
 #[test]
@@ -67,19 +84,34 @@ fn truncated_stdin_and_expect_reads() {
     assert_eq!(std::fs::read_dir(dir.path()).unwrap().count(), 0);
     // Right count: report written from stdin.
     let (o, dir) = warpqc(&["--expect-reads", "11"], "-", Some(&full));
-    assert_eq!(o.status.code(), Some(0), "{}", String::from_utf8_lossy(&o.stderr));
-    let r: serde_json::Value = serde_json::from_slice(&std::fs::read(dir.path().join("S.qc.json")).unwrap()).unwrap();
+    assert_eq!(
+        o.status.code(),
+        Some(0),
+        "{}",
+        String::from_utf8_lossy(&o.stderr)
+    );
+    let r: serde_json::Value =
+        serde_json::from_slice(&std::fs::read(dir.path().join("S.qc.json")).unwrap()).unwrap();
     assert_eq!(u(&r, "/alignment/total_templates"), 11);
     assert_eq!(get(&r, "/inputs/input").as_str(), Some("-"));
     assert_eq!(get(&r, "/tool/name").as_str(), Some("warpqc"));
-    assert_eq!(get(&r, "/qc_status/overall").as_str(), Some("not_evaluated"));
+    assert_eq!(
+        get(&r, "/qc_status/overall").as_str(),
+        Some("not_evaluated")
+    );
 }
 
 #[test]
 fn unparseable_names_warn_and_continue() {
     let (r, _) = run_fixture("bad_names.sam");
     let w = get(&r, "/warnings").as_array().unwrap();
-    assert!(w.iter().any(|w| w.as_str().unwrap().contains("optical duplicate detection is disabled")), "{w:?}");
+    assert!(
+        w.iter().any(|w| w
+            .as_str()
+            .unwrap()
+            .contains("optical duplicate detection is disabled")),
+        "{w:?}"
+    );
     assert!(get(&r, "/duplicates/optical_duplicate_pairs").is_null());
     assert_eq!(u(&r, "/duplicates/duplicate_pairs"), 1);
     assert_eq!(get(&r, "/inputs/lanes"), &serde_json::json!(["unknown"]));
@@ -101,7 +133,11 @@ fn reference_mismatch_via_cache() {
         .status()
         .unwrap();
     assert!(st.success());
-    let (o, _) = warpqc(&["--ref-cache", cache.to_str().unwrap()], fixture("insert.sam").to_str().unwrap(), None);
+    let (o, _) = warpqc(
+        &["--ref-cache", cache.to_str().unwrap()],
+        fixture("insert.sam").to_str().unwrap(),
+        None,
+    );
     assert_eq!(o.status.code(), Some(2));
     assert!(String::from_utf8_lossy(&o.stderr).contains("different reference"));
 }

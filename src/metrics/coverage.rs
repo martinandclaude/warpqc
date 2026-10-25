@@ -29,7 +29,9 @@ impl Depth {
     /// fetch_add can wrap when threads race.
     #[inline]
     pub fn inc(&self, i: u64) -> bool {
-        self.0[i as usize].fetch_update(Relaxed, Relaxed, |v| v.checked_add(1)).is_ok()
+        self.0[i as usize]
+            .fetch_update(Relaxed, Relaxed, |v| v.checked_add(1))
+            .is_ok()
     }
 
     pub fn as_slice(&self) -> &[AtomicU16] {
@@ -116,7 +118,10 @@ pub fn add_template(
     debug_assert!(reads.len() <= 2);
     match reads {
         [(a, ca), (b, cb)]
-            if layout.is_analysis(a.tid) && a.tid == b.tid && a.pos < b.end() && b.pos < a.end() =>
+            if layout.is_analysis(a.tid)
+                && a.tid == b.tid
+                && a.pos < b.end()
+                && b.pos < a.end() =>
         {
             add_overlapping([(a, *ca), (b, *cb)], cov, layout, params, ex, scratch)
         }
@@ -130,7 +135,14 @@ pub fn add_template(
     }
 }
 
-fn add_single(a: &Aln, class: Class, cov: &Coverage, layout: &Layout, params: &Params, ex: &mut Exclusions) {
+fn add_single(
+    a: &Aln,
+    class: Class,
+    cov: &Coverage,
+    layout: &Layout,
+    params: &Params,
+    ex: &mut Exclusions,
+) {
     let off = layout.offset[a.tid as usize];
     let len = layout.lens[a.tid as usize] as i64;
     a.for_each_match_block(|r, q, l| {

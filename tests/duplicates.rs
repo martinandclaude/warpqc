@@ -20,7 +20,12 @@ fn fragments_dedup_against_fragments_only() {
     assert_eq!(u(&r, "/duplicates/pairs_examined"), 1);
     assert_eq!(u(&r, "/duplicates/duplicate_pairs"), 0);
     close(&r, "/duplicates/rate", 2.0 / 6.0);
-    assert!(get(&r, "/definitions/duplicates.fragments").as_str().unwrap().contains("fragments only"));
+    assert!(
+        get(&r, "/definitions/duplicates.fragments")
+            .as_str()
+            .unwrap()
+            .contains("fragments only")
+    );
 }
 
 #[test]
@@ -53,7 +58,10 @@ fn optical_chain_and_cross_lane() {
     assert_eq!(u(&r, "/per_lane/FCA:1/optical_duplicate_pairs"), 2);
     assert_eq!(u(&r, "/per_lane/FCA:2/pairs_examined"), 1);
     assert_eq!(u(&r, "/per_lane/FCA:2/duplicate_pairs"), 1);
-    assert_eq!(get(&r, "/inputs/lanes"), &serde_json::json!(["FCA:1", "FCA:2"]));
+    assert_eq!(
+        get(&r, "/inputs/lanes"),
+        &serde_json::json!(["FCA:1", "FCA:2"])
+    );
 }
 
 #[test]

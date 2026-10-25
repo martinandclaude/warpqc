@@ -79,7 +79,11 @@ mod tests {
             b"a:b::1:1:2:3",
             b"a:b:c:1:1:2:3:u:v",
         ] {
-            assert!(parse_illumina(n).is_none(), "{}", String::from_utf8_lossy(n));
+            assert!(
+                parse_illumina(n).is_none(),
+                "{}",
+                String::from_utf8_lossy(n)
+            );
         }
     }
 }

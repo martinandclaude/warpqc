@@ -12,6 +12,7 @@ hashbrown = "0.17.1"
 md-5 = "0.11.0"
 memchr = "2.8.3"
 mimalloc = "0.1.52"
+noodles = { version = "0.118.0", features = ["bam", "sam", "bgzf"] }
 parking_lot = "0.13.0"
 rayon = "1.12.0"
 serde = { version = "1.0.229", features = ["derive"] }

@@ -76,13 +76,21 @@ pub fn analyze_group(members: &[Member], rank: &[u32], distance: u32, acc: &mut 
         return;
     }
 
-    let mut located: Vec<Member> = members.iter().copied().filter(|m| m.flags & M_LOCATED != 0).collect();
+    let mut located: Vec<Member> = members
+        .iter()
+        .copied()
+        .filter(|m| m.flags & M_LOCATED != 0)
+        .collect();
     located.sort_unstable_by_key(|m| (m.flags & M_R1_REVERSE, m.lane, m.tile, m.x, m.y));
     let bucket = |m: &Member| (m.flags & M_R1_REVERSE, m.lane, m.tile);
     let mut start = 0;
     while start < located.len() {
         let b = bucket(&located[start]);
-        let end = start + located[start..].iter().take_while(|m| bucket(m) == b).count();
+        let end = start
+            + located[start..]
+                .iter()
+                .take_while(|m| bucket(m) == b)
+                .count();
         let ms = &located[start..end];
         if ms.len() > 1 {
             let mut parent: Vec<usize> = (0..ms.len()).collect();
@@ -165,7 +173,11 @@ mod tests {
 
     #[test]
     fn distance_boundary_is_inclusive() {
-        let g = [m(0, 1, 0, 0, false), m(0, 1, 2500, 2500, false), m(0, 1, 5001, 2500, false)];
+        let g = [
+            m(0, 1, 0, 0, false),
+            m(0, 1, 2500, 2500, false),
+            m(0, 1, 5001, 2500, false),
+        ];
         let mut acc = DupAnalysis::new(1);
         analyze_group(&g, &[0], 2500, &mut acc);
         assert_eq!(acc.optical, 1);
