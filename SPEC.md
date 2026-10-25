@@ -1,10 +1,10 @@
-# wgsqc — Rust WGS QC tool: spec & handoff
+# WarpQC — Rust WGS QC tool: spec & handoff
 
 Oct 25, 2026 · @Martin
 
 ## Purpose and scope
 
-wgsqc is one Rust binary that reads a sample's alignments straight from the aligner and writes one QC report per sample, as HTML and JSON. It replaces the GATK, Picard and samtools QC steps in the WGS service pipeline.
+WarpQC is one Rust binary that reads a sample's alignments straight from the aligner and writes one QC report per sample, as HTML and JSON. It replaces the GATK, Picard and samtools QC steps in the WGS service pipeline.
 
 - **Context:** we sequence for groups that do their own analysis and deliver FASTQ. Alignment exists only to produce QC, so no BAM is kept.
 - **Input:** minibwa SAM output for all lanes of one sample, streamed through a pipe in aligner order.
@@ -20,7 +20,7 @@ These were agreed on 25 October 2026 and should not be reopened during the build
 | --- | --- | --- |
 | 1 | Groups receive FASTQ only | No BAM is written or kept; the tool never needs an index |
 | 2 | Aligner is minibwa | Input is minibwa SAM; any SAM/BAM in aligner order must also work |
-| 3 | One job per sample, aligner piped into wgsqc | All lanes go through one minibwa run; lane comes from the read name |
+| 3 | One job per sample, aligner piped into WarpQC | All lanes go through one minibwa run; lane comes from the read name |
 | 4 | Streaming over name-grouped pairs, no sorting | No `samtools sort`, `fixmate` or `MC`/`ms` tags needed |
 | 5 | Run-to-run coverage variation in the 4th decimal is acceptable | Single-pass duplicate exclusion; no deterministic two-pass mode in v0.1 |
 | 6 | No BAM output option | No `--tee-bam`; problem samples are simply re-run |
@@ -29,7 +29,7 @@ These were agreed on 25 October 2026 and should not be reopened during the build
 
 ## Architecture
 
-wgsqc is a single streaming pass over name-grouped pairs. It never sorts, never indexes and never writes alignments; all state lives in memory, about 24 GB for a 30× sample.
+WarpQC is a single streaming pass over name-grouped pairs. It never sorts, never indexes and never writes alignments; all state lives in memory, about 24 GB for a 30× sample.
 
 ```
 Lane FASTQs ──▶ minibwa map ──SAM on stdin──▶ Block reader ──▶ Workers × N
@@ -55,7 +55,7 @@ The duplicate table is the hinge. Each worker asks it whether a pair's signature
 
 ## Input handling
 
-wgsqc reads SAM (or BAM) from stdin or a path, in aligner order, and fails loudly on anything else.
+WarpQC reads SAM (or BAM) from stdin or a path, in aligner order, and fails loudly on anything else.
 
 **Accepted input**
 
@@ -147,7 +147,7 @@ Each run writes three files with the `--out` prefix. The JSON is the source of t
 ```json
 {
   "schema_version": "1.0",
-  "tool": {"name": "wgsqc", "version": "0.1.0", "command": "..."},
+  "tool": {"name": "warpqc", "version": "0.1.0", "command": "..."},
   "sample": "S01",
   "inputs": {"reference": "GRCh38.fa", "reference_md5": "...", "lanes": ["22XYZLT3:1", "22XYZLT3:2"]},
   "parameters": {"min_mapq": 20, "min_bq": 20, "optical_distance": 2500, "bin_size": 1000},
@@ -192,15 +192,15 @@ Failing QC never makes the job fail. The pipeline reads `qc_status.overall` inst
 
 ## CLI and Snakemake integration
 
-One Snakemake rule per sample: minibwa reads every lane's FASTQs and pipes SAM into wgsqc. Nothing is written but the reports.
+One Snakemake rule per sample: minibwa reads every lane's FASTQs and pipes SAM into WarpQC. Nothing is written but the reports.
 
 **CLI**
 
 ```
-wgsqc run \
+warpqc run \
   --sample S01 \
   --reference GRCh38_no_alt.fa \
-  --ref-cache GRCh38_no_alt.wgsqc \
+  --ref-cache GRCh38_no_alt.warpqc \
   --threads 16 \
   --thresholds qc.yaml \
   [--contigs chr1,...,chrM] [--exclude-bed lowmap.bed] [--bin-size 1000] \
@@ -208,8 +208,8 @@ wgsqc run \
   --out results/S01/S01 \
   -                        # SAM on stdin, or a SAM/BAM path
 
-wgsqc prepare-ref --reference GRCh38_no_alt.fa --out GRCh38_no_alt.wgsqc
-wgsqc render --json S01.qc.json --out S01.qc.html   # re-render HTML without re-running
+warpqc prepare-ref --reference GRCh38_no_alt.fa --out GRCh38_no_alt.warpqc
+warpqc render --json S01.qc.json --out S01.qc.html   # re-render HTML without re-running
 ```
 
 **Snakemake rule (sketch)**
@@ -220,7 +220,7 @@ rule align_qc:
         r1=lambda w: sorted(lanes_r1(w.sample)),
         r2=lambda w: sorted(lanes_r2(w.sample)),
         idx="ref/GRCh38_no_alt.fa.mbw",
-        cache="ref/GRCh38_no_alt.wgsqc",
+        cache="ref/GRCh38_no_alt.warpqc",
     output:
         json="qc/{sample}/{sample}.qc.json",
         html="qc/{sample}/{sample}.qc.html",
@@ -231,17 +231,17 @@ rule align_qc:
         "set -o pipefail; "
         "minibwa map -t {threads} ref/GRCh38_no_alt.fa "
         "  <(cat {input.r1}) <(cat {input.r2}) "
-        "| wgsqc run --sample {wildcards.sample} --reference ref/GRCh38_no_alt.fa "
+        "| warpqc run --sample {wildcards.sample} --reference ref/GRCh38_no_alt.fa "
         "    --ref-cache {input.cache} --threads 8 --out qc/{wildcards.sample}/{wildcards.sample} -"
 ```
 
 **Notes for the rule**
 
 - R1 and R2 lane lists must be sorted identically, so pairs stay in step. Concatenated `.fastq.gz` files are valid multi-member gzip, so `cat` is enough.
-- minibwa doesn't handle ALT contigs, so the reference must be a no-ALT analysis set ([minibwa README](https://github.com/lh3/minibwa)). The same FASTA is passed to wgsqc.
-- Most threads go to minibwa. wgsqc's 8 threads are for SAM parsing and accumulator updates, and it should keep up with minibwa's output rate.
-- `set -o pipefail` makes the job fail if minibwa fails, instead of leaving a report built from a truncated stream. wgsqc also checks that the template count matches the FASTQ read count when `--expect-reads` is given.
-- The memory budget is about 25 GB for wgsqc (see Architecture) plus minibwa's index. The figures in the sketch are a starting point; record the real values from the first runs.
+- minibwa doesn't handle ALT contigs, so the reference must be a no-ALT analysis set ([minibwa README](https://github.com/lh3/minibwa)). The same FASTA is passed to WarpQC.
+- Most threads go to minibwa. WarpQC's 8 threads are for SAM parsing and accumulator updates, and it should keep up with minibwa's output rate.
+- `set -o pipefail` makes the job fail if minibwa fails, instead of leaving a report built from a truncated stream. WarpQC also checks that the template count matches the FASTQ read count when `--expect-reads` is given.
+- The memory budget is about 25 GB for WarpQC (see Architecture) plus minibwa's index. The figures in the sketch are a starting point; record the real values from the first runs.
 
 ## Rust implementation notes
 
@@ -269,7 +269,7 @@ src/
   input/bam.rs       BAM reader for tests and file input
   input/group.rs     template grouping, order validation
   record.rs          borrowed light record: flag, tid, pos, mapq, cigar, qual, tlen, NM, read-name fields
-  reference.rs       non-N bitmask, contig set, per-bin GC; .wgsqc cache read/write
+  reference.rs       non-N bitmask, contig set, per-bin GC; .warpqc cache read/write
   metrics/align.rs   flagstat, MAPQ, clipping, mismatch, chimeras
   metrics/insert.rs  insert-size histogram and stats
   metrics/dups.rs    signature packing, sharded table, fragment table
@@ -310,7 +310,7 @@ The duplicate table grows linearly with depth, to roughly 23 GB at 60×.
 
 **Performance targets**
 
-- Parse at least 300 MB/s of SAM on 8 worker threads, so wgsqc is never the slower end of the pipe.
+- Parse at least 300 MB/s of SAM on 8 worker threads, so WarpQC is never the slower end of the pipe.
 - Total wall time should be minibwa's runtime plus under 2 minutes for the final sweep and rendering.
 - Peak RSS stays within the budget above.
 
@@ -340,7 +340,7 @@ Correctness is shown in three layers: synthetic unit fixtures, a small golden da
 
 The reference run takes the same minibwa output, merges it, coordinate-sorts it and runs the classic tools on it. The PMAD comparison uses DRAGEN 4.5 on the same FASTQ.
 
-| wgsqc metric | Compared against | Proposed acceptance |
+| WarpQC metric | Compared against | Proposed acceptance |
 | --- | --- | --- |
 | Duplicate rate | Picard MarkDuplicates PERCENT\_DUPLICATION | within ±0.2 percentage points |
 | Optical duplicates | Picard (OPTICAL\_DUPLICATE\_PIXEL\_DISTANCE=2500) | within ±5% relative |
@@ -354,7 +354,7 @@ The reference run takes the same minibwa output, merges it, coordinate-sorts it 
 **Robustness and performance**
 
 - [ ] Kill minibwa mid-stream: the job must fail, with no report written.
-- [ ] A 30× sample on a worker node: record wall time and peak RSS for minibwa alone and for minibwa piped into wgsqc. Use them to set the rule's SLURM defaults.
+- [ ] A 30× sample on a worker node: record wall time and peak RSS for minibwa alone and for minibwa piped into WarpQC. Use them to set the rule's SLURM defaults.
 - [ ] A 60× sample, to check that duplicate-table memory scales as estimated.
 
 ## Roadmap and open items
@@ -375,4 +375,4 @@ v0.1 is the scope of the first Claude Code handoff. v0.2 and v0.3 start only aft
 - [ ] Decide whether fragment duplicates should also match pair ends (full Picard parity) in v0.2.
 - [ ] Set real QC thresholds from the first 20–30 production samples.
 - [ ] Pick a contamination method for v0.3.
-- [ ] wgsqc is a working name; settle the final name before the first release.
+- [x] Name settled on 25 October 2026: WarpQC (`warpqc` on the command line).
