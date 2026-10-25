@@ -35,12 +35,41 @@ pub fn with_suffix(prefix: &Path, suffix: &str) -> std::path::PathBuf {
     std::path::PathBuf::from(s)
 }
 
-/// Writes the files rendered from a report: `<prefix>.qc.html` and the
-/// MultiQC custom content. Returns the paths written.
-pub fn write_rendered(r: &json::Report, prefix: &Path) -> Result<Vec<std::path::PathBuf>> {
-    let html = with_suffix(prefix, ".qc.html");
-    write_atomic(&html, html::render_html(r).as_bytes())?;
-    let mut written = vec![html];
+/// Which files are rendered from the report. `<prefix>.qc.json` is always
+/// written by `run`; the HTML and MultiQC files are opt-in.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub struct Outputs {
+    pub html: bool,
+    pub multiqc: bool,
+}
+
+impl Outputs {
+    pub const NONE: Outputs = Outputs {
+        html: false,
+        multiqc: false,
+    };
+    pub const ALL: Outputs = Outputs {
+        html: true,
+        multiqc: true,
+    };
+}
+
+/// Writes the requested files rendered from a report: `<prefix>.qc.html`
+/// and/or the MultiQC custom content. Returns the paths written.
+pub fn write_rendered(
+    r: &json::Report,
+    prefix: &Path,
+    outputs: Outputs,
+) -> Result<Vec<std::path::PathBuf>> {
+    let mut written = Vec::new();
+    if outputs.html {
+        let html = with_suffix(prefix, ".qc.html");
+        write_atomic(&html, html::render_html(r).as_bytes())?;
+        written.push(html);
+    }
+    if !outputs.multiqc {
+        return Ok(written);
+    }
     for (suffix, v) in multiqc::files(r) {
         let p = with_suffix(prefix, suffix);
         let mut b = serde_json::to_vec_pretty(&v).expect("MultiQC JSON serialises");
@@ -51,15 +80,19 @@ pub fn write_rendered(r: &json::Report, prefix: &Path) -> Result<Vec<std::path::
     Ok(written)
 }
 
-/// Writes `<prefix>.qc.json` first, then everything rendered from it.
-pub fn write_all(r: &json::Report, prefix: &Path) -> Result<Vec<std::path::PathBuf>> {
+/// Writes `<prefix>.qc.json` first, then the requested files rendered from it.
+pub fn write_all(
+    r: &json::Report,
+    prefix: &Path,
+    outputs: Outputs,
+) -> Result<Vec<std::path::PathBuf>> {
     let json = with_suffix(prefix, ".qc.json");
     if let Some(dir) = json.parent().filter(|d| !d.as_os_str().is_empty()) {
         std::fs::create_dir_all(dir).ctx(format!("creating {}", dir.display()))?;
     }
     write_atomic(&json, &r.to_json())?;
     let mut written = vec![json];
-    written.extend(write_rendered(r, prefix)?);
+    written.extend(write_rendered(r, prefix, outputs)?);
     Ok(written)
 }
 
@@ -78,12 +111,14 @@ pub fn render_prefix(json: &Path, out: Option<&Path>) -> std::path::PathBuf {
     strip(out.unwrap_or(json))
 }
 
-/// `warpqc render`: rebuilds the HTML and MultiQC files from a report. With
-/// thresholds, re-evaluates `qc_status` and writes `<prefix>.qc.json` too.
+/// `warpqc render`: rebuilds the requested HTML and MultiQC files from a
+/// report. With thresholds, re-evaluates `qc_status` and writes
+/// `<prefix>.qc.json` too.
 pub fn render(
     json: &Path,
     thresholds: Option<&Path>,
     out: Option<&Path>,
+    outputs: Outputs,
 ) -> Result<Vec<std::path::PathBuf>> {
     let bytes = std::fs::read(json).ctx(format!("reading {}", json.display()))?;
     let mut report = json::Report::from_json(&bytes)?;
@@ -94,8 +129,8 @@ pub fn render(
             let v = serde_json::to_value(&report).expect("report serialises");
             t.validate(&v)?;
             report.apply_thresholds(&t);
-            write_all(&report, &prefix)
+            write_all(&report, &prefix, outputs)
         }
-        None => write_rendered(&report, &prefix),
+        None => write_rendered(&report, &prefix, outputs),
     }
 }

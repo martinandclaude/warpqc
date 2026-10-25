@@ -33,7 +33,12 @@ fn multiqc_reads_all_three_files() {
         let mut c = config(fx);
         c.sample = sample.into();
         let out = warpqc::pipeline::run(&c).unwrap();
-        warpqc::report::write_all(&out.report, &input.join(sample)).unwrap();
+        warpqc::report::write_all(
+            &out.report,
+            &input.join(sample),
+            warpqc::report::Outputs::ALL,
+        )
+        .unwrap();
     }
     let outdir = dir.path().join("out");
     let st = Command::new(&mq)

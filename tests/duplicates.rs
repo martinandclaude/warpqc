@@ -3,7 +3,18 @@ use common::*;
 
 #[test]
 fn reverse_trailing_softclip_groups_by_unclipped_5p() {
-    let (r, _) = run_fixture_except("dup_softclip_reverse.sam", &["/coverage", "/insert_size"]);
+    // Members differ in clips and TLEN, so everything fed by the kept member
+    // (coverage, insert size, bins, per-lane insert median) depends on thread
+    // timing (locked decision 5). The duplicate counts below do not.
+    let (r, _) = run_fixture_except(
+        "dup_softclip_reverse.sam",
+        &[
+            "/coverage",
+            "/insert_size",
+            "/uniformity",
+            "/per_lane/FCA:1/insert_median",
+        ],
+    );
     assert_eq!(u(&r, "/duplicates/pairs_examined"), 5);
     assert_eq!(u(&r, "/duplicates/duplicate_pairs"), 3);
     assert_eq!(u(&r, "/duplicates/duplicate_groups"), 1);

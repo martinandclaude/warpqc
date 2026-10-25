@@ -9,7 +9,12 @@ fn write(sample: &str, fx: &str) -> (Report, String, tempfile::TempDir) {
     c.thresholds = Some(root().join("tests/fixtures/thresholds/qc.yaml"));
     let out = warpqc::pipeline::run(&c).unwrap();
     let dir = tempfile::tempdir().unwrap();
-    let files = warpqc::report::write_all(&out.report, &dir.path().join("S")).unwrap();
+    let files = warpqc::report::write_all(
+        &out.report,
+        &dir.path().join("S"),
+        warpqc::report::Outputs::ALL,
+    )
+    .unwrap();
     let names: Vec<String> = files
         .iter()
         .map(|p| p.file_name().unwrap().to_string_lossy().into_owned())

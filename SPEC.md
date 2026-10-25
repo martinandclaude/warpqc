@@ -8,7 +8,7 @@ WarpQC is one Rust binary that reads a sample's alignments straight from the ali
 
 - **Context:** we sequence for groups that do their own analysis and deliver FASTQ. Alignment exists only to produce QC, so no BAM is kept.
 - **Input:** minibwa SAM output for all lanes of one sample, streamed through a pipe in aligner order.
-- **Output:** `<sample>.qc.json`, `<sample>.qc.html` and a MultiQC-compatible file.
+- **Output:** `<sample>.qc.json`; optionally `<sample>.qc.html` (`--html`) and MultiQC custom content (`--multiqc`).
 - **Target data:** human WGS, NovaSeq X Plus, 2x151, PCR-free and PCR libraries, GRCh38.
 - **Out of scope for v1:** variant calling, BAM/CRAM writing, exome or targeted metrics, and long reads.
 
@@ -152,7 +152,7 @@ Every metric is computed in the single streaming pass or in one sweep over the a
 
 ## Outputs
 
-Each run writes three files with the `--out` prefix. The JSON is the source of truth; the HTML and MultiQC files are rendered from it.
+Each run writes `<prefix>.qc.json`. The HTML (`--html`) and MultiQC (`--multiqc`) files are opt-in, a decision made on 25 October 2026 so that the default output is the JSON alone. The JSON is the source of truth; the HTML and MultiQC files are rendered from it, at run time or later with `warpqc render`, which writes both unless `--html` or `--multiqc` picks one.
 
 **`<prefix>.qc.json`** — a versioned schema, with fractions as 0–1 floats, not percentages:
 
@@ -235,11 +235,12 @@ warpqc run \
   --thresholds qc.yaml \
   [--contigs chr1,...,chrM] [--exclude-bed lowmap.bed] [--bin-size 1000] \
   [--min-mapq 20] [--min-bq 20] [--optical-distance 2500] [--no-raw] \
+  [--html] [--multiqc] \
   --out results/S01/S01 \
   -                        # SAM on stdin, or a SAM/BAM path
 
 warpqc prepare-ref --reference GRCh38_no_alt.fa --out GRCh38_no_alt.warpqc
-warpqc render --json S01.qc.json [--thresholds qc.yaml] [--out S01]   # re-render HTML and MultiQC; with --thresholds, re-evaluate qc_status and rewrite the JSON
+warpqc render --json S01.qc.json [--html] [--multiqc] [--thresholds qc.yaml] [--out S01]   # render HTML and/or MultiQC (both by default); with --thresholds, re-evaluate qc_status and rewrite the JSON
 ```
 
 **Snakemake rule (sketch)**
@@ -253,8 +254,8 @@ rule align_qc:
         cache="ref/GRCh38_no_alt.warpqc",
     output:
         json="qc/{sample}/{sample}.qc.json",
-        html="qc/{sample}/{sample}.qc.html",
-        mqc="qc/{sample}/{sample}_mqc.json",
+        html="qc/{sample}/{sample}.qc.html",  # needs --html
+        mqc=multiext("qc/{sample}/{sample}", ".general_mqc.json", ".insert_mqc.json", ".coverage_mqc.json"),  # needs --multiqc
     threads: 64
     resources: mem_mb=64000, runtime=180
     shell:
@@ -262,7 +263,8 @@ rule align_qc:
         "minibwa map -t {threads} ref/GRCh38_no_alt.fa "
         "  <(cat {input.r1}) <(cat {input.r2}) "
         "| warpqc run --sample {wildcards.sample} --reference ref/GRCh38_no_alt.fa "
-        "    --ref-cache {input.cache} --threads 8 --out qc/{wildcards.sample}/{wildcards.sample} -"
+        "    --ref-cache {input.cache} --threads 8 --html --multiqc "
+        "    --out qc/{wildcards.sample}/{wildcards.sample} -"
 ```
 
 **Notes for the rule**

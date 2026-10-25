@@ -52,7 +52,9 @@ minibwa map -t 56 GRCh38_no_alt.fa <(cat S01_L*_R1.fastq.gz) <(cat S01_L*_R2.fas
       --expect-reads 412345678 --out results/S01/S01 -
 ```
 
-This writes `results/S01/S01.qc.json`, `S01.qc.html` and the MultiQC files. A SAM or BAM path can be given instead of
+By default this writes only `results/S01/S01.qc.json`. Add `--html` for
+`S01.qc.html` and `--multiqc` for the MultiQC files; either can also be made later
+from the JSON with `warpqc render`. A SAM or BAM path can be given instead of
 `-`, which is useful for tests.
 
 | Option | Default | Meaning |
@@ -64,6 +66,8 @@ This writes `results/S01/S01.qc.json`, `S01.qc.html` and the MultiQC files. A SA
 | `--no-raw` | off | Skip the raw depth array (saves 2 bytes per analysis base) |
 | `--expect-reads` | none | Expected read pairs. A mismatch fails the run. Also pre-sizes the duplicate table |
 | `--library` | sample name | Library name in the report |
+| `--html` | off | Also write `<prefix>.qc.html` |
+| `--multiqc` | off | Also write the three MultiQC custom-content files |
 | `--thresholds` | none | YAML of warn/fail bounds per JSON path; sets `qc_status` (see below) |
 | `--bin-size` | 1000 | Bin size for PMAD and the GC curve; match `prepare-ref --bin-size` |
 | `--exclude-bed` | none | Regions whose bins are left out of PMAD (blacklist, low mappability) |
@@ -89,7 +93,8 @@ How thresholds are applied:
 warpqc render --json results/S01/S01.qc.json --thresholds qc.yaml
 ```
 
-This rebuilds the HTML and MultiQC files from the JSON. With `--thresholds` it
+This rebuilds the HTML and MultiQC files from the JSON (both by default;
+`--html` or `--multiqc` picks one). With `--thresholds` it
 also re-evaluates `qc_status` and rewrites the JSON, so thresholds set after the
 first production samples can be applied to them without re-aligning.
 
@@ -118,8 +123,9 @@ leaves no report behind.
 
 ## Output
 
-Each run writes five files with the `--out` prefix. The JSON is written first;
-the rest are rendered from it.
+Each run writes `<prefix>.qc.json`; the HTML (`--html`) and MultiQC
+(`--multiqc`) files are optional. The JSON is written first and the others are
+rendered from it, so `warpqc render` can produce them at any time later.
 
 - **`<prefix>.qc.json`** (schema 1.1, which reads 1.0 reports too). Fractions are 0–1 floats. Sections:
   - `alignment`, `insert_size`, `duplicates`

@@ -7,7 +7,7 @@ use warpqc::error::{Result, input};
 use warpqc::metrics::Params;
 use warpqc::pipeline::{DEFAULT_THRESHOLDS, RunConfig, run};
 use warpqc::reference::{DEFAULT_BIN_SIZE, Reference};
-use warpqc::report::write_all;
+use warpqc::report::{Outputs, write_all};
 
 #[global_allocator]
 static GLOBAL: mimalloc::MiMalloc = mimalloc::MiMalloc;
@@ -37,9 +37,16 @@ enum Cmd {
         #[arg(long, default_value_t = DEFAULT_BIN_SIZE)]
         bin_size: u32,
     },
-    /// Rebuild the HTML and MultiQC files from a report, optionally
-    /// re-evaluating qc_status with new thresholds (rewrites the JSON then).
+    /// Rebuild the HTML and MultiQC files from a report (both, unless --html
+    /// or --multiqc picks one), optionally re-evaluating qc_status with new
+    /// thresholds (rewrites the JSON then).
     Render {
+        /// Write only <prefix>.qc.html (with --multiqc: both).
+        #[arg(long)]
+        html: bool,
+        /// Write only the MultiQC files (with --html: both).
+        #[arg(long)]
+        multiqc: bool,
         /// A <prefix>.qc.json written by `warpqc run`.
         #[arg(long)]
         json: PathBuf,
@@ -99,7 +106,14 @@ struct RunArgs {
     /// BED of regions whose bins are left out of PMAD (blacklist, low mappability).
     #[arg(long)]
     exclude_bed: Option<PathBuf>,
-    /// Output prefix: writes <out>.qc.json, <out>.qc.html and three <out>.*_mqc.json.
+    /// Also write <out>.qc.html.
+    #[arg(long)]
+    html: bool,
+    /// Also write the MultiQC custom content (<out>.general_mqc.json,
+    /// <out>.insert_mqc.json, <out>.coverage_mqc.json).
+    #[arg(long)]
+    multiqc: bool,
+    /// Output prefix: writes <out>.qc.json, plus the --html / --multiqc files.
     #[arg(long)]
     out: PathBuf,
     /// Block size in bytes handed to each worker.
@@ -141,7 +155,11 @@ fn run_cmd(a: RunArgs) -> Result<()> {
     cfg.exclude_bed = a.exclude_bed;
     cfg.command = std::env::args().collect::<Vec<_>>().join(" ");
     let out = run(&cfg)?;
-    write_all(&out.report, &a.out).map(|_| ())
+    let outputs = Outputs {
+        html: a.html,
+        multiqc: a.multiqc,
+    };
+    write_all(&out.report, &a.out, outputs).map(|_| ())
 }
 
 fn main() -> ExitCode {
@@ -157,7 +175,17 @@ fn main() -> ExitCode {
             json,
             thresholds,
             out,
-        } => warpqc::report::render(&json, thresholds.as_deref(), out.as_deref()).map(|_| ()),
+            html,
+            multiqc,
+        } => {
+            let outputs = if html || multiqc {
+                Outputs { html, multiqc }
+            } else {
+                Outputs::ALL
+            };
+            warpqc::report::render(&json, thresholds.as_deref(), out.as_deref(), outputs)
+                .map(|_| ())
+        }
     };
     match res {
         Ok(()) => ExitCode::SUCCESS,
