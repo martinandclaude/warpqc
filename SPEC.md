@@ -130,13 +130,18 @@ Every metric is computed in the single streaming pass or in one sweep over the a
 
 ### Uniformity and PMAD
 
-- **Bins:** 1,000 bp (`--bin-size`) on autosomes only, so sex-chromosome copy number doesn't inflate the result. A bin is skipped if it contains an N, or if it overlaps the optional `--exclude-bed` (low mappability or blacklist).
-- **Bin count:** filtered (non-duplicate, MAPQ ≥20) reads whose alignment start falls in the bin.
-- **Normalization:** v\[i\] = log2(count\[i\] / median count). Bins with a zero count are dropped from the log step, and the number dropped is reported.
-- **GC-corrected variant:** before the log, divide each count by the median count of bins in its integer GC% stratum. Strata with fewer than 100 bins are merged with their neighbour.
+- **Bins:** 1,000 bp (`--bin-size`) on autosomes only, so sex-chromosome copy number doesn't inflate the result. Only full bins are used; the partial last bin of a contig is dropped. A bin is skipped if it contains an N, or if it overlaps the optional `--exclude-bed` by at least 1 bp (low mappability or blacklist). BED contigs not in the reference are ignored with a warning.
+- **Bin count:** filtered reads (primary, not QC-fail, first-seen non-duplicate, MAPQ ≥20) whose leftmost aligned base falls in the bin. Counting is per read, not per pair. Both mates of a pair often land in the same 1 kb bin, which inflates bin variance: on simulated Poisson data at 54 reads per bin, PMAD came out 0.23, against about 0.19 for independent reads. This doesn't matter for the DRAGEN calibration, which is by rank, but it is why PMAD never reaches the pure-Poisson floor.
+- **Normalization:** v\[i\] = log2(count\[i\] / median count). The median is taken over all retained bins, zeros included. Bins with a zero count are then dropped from the log step, and the number dropped is reported. If the median is 0, PMAD is null. Medians of an even count are the mean of the two middle values.
+- **GC-corrected variant:** before the log, divide each count by the median count of bins in its integer GC% stratum, GC% = round(100 × G+C / bin size) from the reference. Strata with fewer than 100 bins are merged with their neighbour: walking up from 0 % GC, strata join the current group until it holds 100 bins, and a short tail joins the group before it. Then v = log2(c′ / median c′). Bins whose group median is 0 are dropped and counted (`gc_dropped_bins`).
 - **Differences:** d\[i\] = v\[i\] − v\[i+1\] over consecutive retained bins *within* a contig. There is never a difference across a contig boundary.
 - **PMAD:** Median(|d\[i\] − Median(d)|), with no 1.4826 scaling. Reported raw and GC-corrected. The GC-corrected value is the one to compare with DRAGEN.
-- **Also reported:** CV of bin counts, the Oexle evenness score, and a GC-bias curve (normalized coverage per GC stratum) with Picard's AT and GC dropout.
+- **Also reported:**
+  - **CV of bin counts:** SD with n − 1, over retained bins.
+  - **Evenness score E** (Mokry et al. 2010; Oexle 2016): E = 1 − (\|D2\| − ΣD2 / C) / N, with C = round(mean depth) (half to even, as the Sequana implementation) and D2 = positions with depth ≤ C. It is computed from the filtered per-base depth histogram over the whole analysis territory, and is null when C is 0.
+  - **GC-bias curve:** normalised read starts per GC%, as reads per bin at that GC over reads per bin overall.
+  - **AT and GC dropout:** Picard's formula, the sum of positive (% of bins − % of reads) over GC 0–50 and GC 50–100, reported as fractions. These are computed on our 1 kb bins, *not* on Picard's 100 bp sliding windows at read 5′ ends, so the numbers are not comparable with CollectGcBiasMetrics. Exact Picard parity would need per-position GC (about 3 GB) or the reference in memory.
+  - **Coverage profile:** the mean of count / median count per 1 Mb window, for the HTML plot. The JSON holds only this resolution, since 2.9 million bins is too large for it.
 
 ### Later metrics (v0.3)
 
@@ -174,9 +179,18 @@ Each run writes three files with the `--out` prefix. The JSON is the source of t
 - A summary table at the top with pass/warn/fail badges from the thresholds.
 - A plot for each of: insert size distribution, cumulative coverage (% bases ≥ X), depth histogram, per-contig mean depth, GC-bias curve, and the binned-coverage profile along the genome. Plus a per-lane table.
 - Plots are inline SVG generated in Rust. Short axis labels and a legend only: no chart titles and no in-plot annotations.
-- The full JSON is embedded in a `<script type="application/json">` tag, so the HTML alone is enough to re-extract every number.
+- The full JSON is embedded in a `<script type="application/json">` tag, so the HTML alone is enough to re-extract every number. `<` is written as `\u003c` there, so no sample name can close the element.
+- **As built:**
+  - No JavaScript. Bars and GC points carry SVG `<title>` tooltips.
+  - Light and dark themes come from CSS variables, and the per-lane rows add the FR insert median and mismatch rate.
+  - chrM is left out of the per-contig plot, because its depth would flatten every other bar; its mean depth is in the summary table.
+  - Threshold rules are shown in the unit of the value beside them, e.g. "warn above 8.00 %".
 
-**`<prefix>_mqc.json`** — MultiQC custom content: a general-stats row (mean coverage, % ≥ 30×, duplicate rate, median insert, PMAD) and line-graph sections for insert size and cumulative coverage. MultiQC over a run directory then gives the cross-sample view.
+**`<prefix>.general_mqc.json`, `<prefix>.insert_mqc.json`, `<prefix>.coverage_mqc.json`** — MultiQC custom content. MultiQC reads one section per custom-content file, so this is three files rather than one `_mqc.json`:
+- a general-stats row: mean coverage, % ≥ 30×, duplicate rate, median insert, GC-corrected PMAD and the QC status;
+- line graphs for insert size and cumulative coverage.
+
+Percentages are shown as percentages there (MultiQC convention). MultiQC over a run directory then gives the cross-sample view. CI checks these files against the real MultiQC.
 
 **Thresholds** — an optional `--thresholds qc.yaml` sets warn and fail bounds per JSON path:
 
@@ -188,6 +202,15 @@ uniformity.pmad_gc: {warn_above: 0.25, fail_above: 0.40}
 ```
 
 The numbers above are placeholders. Real bounds should be set from the first 20–30 production samples.
+
+How the bounds are applied:
+- A value equal to a bound passes.
+- A path is dot-separated JSON object keys. Every path except `per_lane.*` is checked against a skeleton report before any input is read, so a typo fails the run at once with exit 2.
+- An unknown bound name is an error, and so is a path to a non-numeric value.
+- A metric that comes out null gets status "missing", which counts as warn.
+- `qc_status.overall` is the worst check: fail, then warn, then pass. Without thresholds it is "not_evaluated".
+
+**Schema 1.1** adds `uniformity`, a real `qc_status` and the two per-lane fields. `render` reads 1.0 reports too. Floats round-trip exactly (serde_json `float_roundtrip`), so re-rendering never changes a number.
 
 **Exit codes**
 
@@ -216,7 +239,7 @@ warpqc run \
   -                        # SAM on stdin, or a SAM/BAM path
 
 warpqc prepare-ref --reference GRCh38_no_alt.fa --out GRCh38_no_alt.warpqc
-warpqc render --json S01.qc.json --out S01.qc.html   # re-render HTML without re-running
+warpqc render --json S01.qc.json [--thresholds qc.yaml] [--out S01]   # re-render HTML and MultiQC; with --thresholds, re-evaluate qc_status and rewrite the JSON
 ```
 
 **Snakemake rule (sketch)**
@@ -382,7 +405,7 @@ v0.1 is the scope of the first Claude Code handoff. v0.2 and v0.3 start only aft
 
 1. **v0.1 Core engine** (this handoff): streaming reader and grouping; alignment stats and insert size; duplicates incl. optical; depth arrays; JSON output.
     - **Gate 1:** unit fixtures and golden tests pass; Picard/mosdepth concordance within the bounds above.
-2. **v0.2 Report and PMAD:** bins, PMAD raw and GC-corrected; HTML report and MultiQC output; thresholds YAML; per-lane tables.
+2. **v0.2 Report and PMAD:** bins, PMAD raw and GC-corrected; HTML report and MultiQC output; thresholds YAML; per-lane tables. *(Built 25 October 2026; Gate 1 concordance still to be run.)*
     - **Gate 2:** PMAD calibrated against DRAGEN; SLURM defaults recorded from real runs.
 3. **v0.3 Extras:** sex check, mtDNA copy number, NimaGen SNP fingerprint, contamination estimate.
 

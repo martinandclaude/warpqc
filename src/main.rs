@@ -23,7 +23,7 @@ struct Cli {
 #[derive(Subcommand)]
 #[allow(clippy::large_enum_variant)] // parsed once at startup
 enum Cmd {
-    /// Compute QC metrics from name-grouped SAM/BAM and write <out>.qc.json.
+    /// Compute QC metrics from name-grouped SAM/BAM and write the report files.
     Run(RunArgs),
     /// Scan a reference FASTA once and write the .warpqc cache.
     PrepareRef {
@@ -99,7 +99,7 @@ struct RunArgs {
     /// BED of regions whose bins are left out of PMAD (blacklist, low mappability).
     #[arg(long)]
     exclude_bed: Option<PathBuf>,
-    /// Output prefix: writes <out>.qc.json.
+    /// Output prefix: writes <out>.qc.json, <out>.qc.html and three <out>.*_mqc.json.
     #[arg(long)]
     out: PathBuf,
     /// Block size in bytes handed to each worker.

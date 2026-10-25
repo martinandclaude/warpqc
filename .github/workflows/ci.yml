@@ -18,8 +18,14 @@ jobs:
         with:
           components: rustfmt, clippy
       - uses: Swatinem/rust-cache@v2
-      # samtools makes the flagstat cross-check and BAM tests run instead of skip.
+      # samtools and MultiQC make the flagstat, BAM and MultiQC tests run
+      # instead of skip.
       - run: sudo apt-get update && sudo apt-get install -y samtools
+      - name: Install MultiQC
+        run: |
+          python3 -m venv "$RUNNER_TEMP/mqc"
+          "$RUNNER_TEMP/mqc/bin/pip" install --quiet multiqc
+          echo "WARPQC_MULTIQC=$RUNNER_TEMP/mqc/bin/multiqc" >> "$GITHUB_ENV"
       - run: cargo fmt --check
       - run: cargo clippy --all-targets -- -D warnings
       - run: cargo test
