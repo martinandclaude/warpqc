@@ -230,8 +230,14 @@ impl<S: LineSource> Blocker<S> {
     }
 
     fn finish(&mut self) -> Result<()> {
-        let last_incomplete = !self.cur_name.is_empty() && !self.group.complete();
-        if last_incomplete && self.stats.incomplete == 0 {
+        if self.cur_name.is_empty() {
+            return Err(input(
+                "the input has a header but no alignment records; the aligner probably failed",
+            ));
+        }
+        // Checked even when earlier templates were incomplete: the last one
+        // is where a killed aligner leaves its mark.
+        if !self.group.complete() {
             return Err(input(format!(
                 "the last template ({}) is missing a primary mate; the stream was probably truncated",
                 String::from_utf8_lossy(&self.cur_name)
@@ -353,6 +359,26 @@ mod tests {
         assert!(cut2.ends_with('\n'));
         let e = collect(cut2, 10).unwrap_err().to_string();
         assert!(e.contains("last template"), "{e}");
+    }
+
+    #[test]
+    fn truncated_last_template_after_earlier_incomplete_ones() {
+        // Review finding: one early R1-only template used to disable the
+        // last-template check.
+        let mut text = String::from("x\t99\tchr1\t1\t60\t4M\t=\t5\t8\tACGT\tIIII\n");
+        for i in 0..300 {
+            text.push_str(&pair(&format!("t{i}")));
+        }
+        text.push_str("z\t99\tchr1\t1\t60\t4M\t=\t5\t8\tACGT\tIIII\n");
+        let e = collect(&text, 100).unwrap_err().to_string();
+        assert!(e.contains("last template"), "{e}");
+    }
+
+    #[test]
+    fn header_only_input_is_an_error() {
+        let e = collect("@HD\tVN:1.6\n@SQ\tSN:chr1\tLN:10\n", 100).unwrap_err();
+        assert_eq!(e.exit_code(), 2);
+        assert!(e.to_string().contains("no alignment records"), "{e}");
     }
 
     #[test]

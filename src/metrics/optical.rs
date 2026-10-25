@@ -1,12 +1,20 @@
 //! End-of-stream analysis of duplicate groups: optical clustering, per-lane
 //! attribution and cross-lane groups.
 //!
+//! Per-lane duplicates: a group of n members has n - 1 duplicates but no
+//! natural keeper, so each member counts (n - 1)/n in its own lane. This is
+//! the expected attribution under a uniformly random keeper; it sums to the
+//! global count and does not favour any lane. It is kept as integer member
+//! counts per group size, so the result is exact and independent of order.
+//!
 //! Optical clustering follows Picard MarkDuplicates: members are split by
 //! R1 orientation (`orientationForOpticalDuplicates`), compared only within
 //! the same lane (Picard: read group) and tile, linked when |dx| <= d and
 //! |dy| <= d, and each single-linkage cluster of size k gives k - 1 optical
 //! duplicates. Groups larger than Picard's `MAX_OPTICAL_DUPLICATE_SET_SIZE`
 //! get no optical calls, as in Picard.
+
+use std::collections::BTreeMap;
 
 use crate::metrics::dups::{M_LOCATED, M_R1_REVERSE, Member};
 
@@ -18,14 +26,15 @@ pub struct DupAnalysis {
     pub dup_pairs: u64,
     pub optical: u64,
     pub cross_lane_dup_pairs: u64,
-    pub lane_dups: Vec<u64>,
+    /// Per lane: group size n -> members of that lane in groups of size n.
+    pub lane_members: Vec<BTreeMap<u32, u64>>,
     pub lane_optical: Vec<u64>,
 }
 
 impl DupAnalysis {
     pub fn new(lanes: usize) -> Self {
         DupAnalysis {
-            lane_dups: vec![0; lanes],
+            lane_members: vec![BTreeMap::new(); lanes],
             lane_optical: vec![0; lanes],
             ..Default::default()
         }
@@ -36,12 +45,22 @@ impl DupAnalysis {
         self.dup_pairs += o.dup_pairs;
         self.optical += o.optical;
         self.cross_lane_dup_pairs += o.cross_lane_dup_pairs;
-        for (a, b) in self.lane_dups.iter_mut().zip(&o.lane_dups) {
-            *a += b;
+        for (a, b) in self.lane_members.iter_mut().zip(&o.lane_members) {
+            for (&n, &c) in b {
+                *a.entry(n).or_default() += c;
+            }
         }
         for (a, b) in self.lane_optical.iter_mut().zip(&o.lane_optical) {
             *a += b;
         }
+    }
+
+    /// Fractional duplicate pairs attributed to `lane`.
+    pub fn lane_dups(&self, lane: usize) -> f64 {
+        self.lane_members[lane]
+            .iter()
+            .map(|(&n, &c)| c as f64 * (n - 1) as f64 / n as f64)
+            .sum()
     }
 }
 
@@ -53,21 +72,17 @@ fn find(parent: &mut [usize], mut i: usize) -> usize {
     i
 }
 
-/// `rank[lane]` orders lanes by name so that the keeper, and with it the
-/// per-lane attribution, does not depend on the order lanes were first seen.
-pub fn analyze_group(members: &[Member], rank: &[u32], distance: u32, acc: &mut DupAnalysis) {
+pub fn analyze_group(members: &[Member], distance: u32, acc: &mut DupAnalysis) {
     let n = members.len();
     if n < 2 {
         return;
     }
     acc.groups += 1;
     acc.dup_pairs += n as u64 - 1;
-    let order = |m: &Member| (rank[m.lane as usize], m.tile, m.x, m.y, m.flags);
-    let keeper = (0..n).min_by_key(|&i| order(&members[i])).unwrap();
-    for (i, m) in members.iter().enumerate() {
-        if i != keeper {
-            acc.lane_dups[m.lane as usize] += 1;
-        }
+    for m in members {
+        *acc.lane_members[m.lane as usize]
+            .entry(n as u32)
+            .or_default() += 1;
     }
     if members.iter().any(|m| m.lane != members[0].lane) {
         acc.cross_lane_dup_pairs += n as u64 - 1;
@@ -143,21 +158,23 @@ mod tests {
             m(1, 1101, 1000, 1000, false), // D: other lane
         ];
         let mut acc = DupAnalysis::new(2);
-        analyze_group(&g, &[0, 1], 2500, &mut acc);
+        analyze_group(&g, 2500, &mut acc);
         assert_eq!(acc.dup_pairs, 4);
         assert_eq!(acc.optical, 2);
         assert_eq!(acc.lane_optical, vec![2, 0]);
         assert_eq!(acc.cross_lane_dup_pairs, 4);
-        assert_eq!(acc.lane_dups, vec![3, 1]);
+        // 4 members in lane 0 and 1 in lane 1, each counting 4/5.
+        assert!((acc.lane_dups(0) - 3.2).abs() < 1e-12);
+        assert!((acc.lane_dups(1) - 0.8).abs() < 1e-12);
     }
 
     #[test]
-    fn keeper_follows_lane_name_rank_not_lane_id() {
-        // Lane id 1 sorts first by name: its member is the keeper.
+    fn per_lane_attribution_is_symmetric() {
+        // Review finding: a fixed keeper rule favoured the lowest-named lane.
         let g = [m(0, 1101, 1, 1, false), m(1, 1101, 9, 9, false)];
         let mut acc = DupAnalysis::new(2);
-        analyze_group(&g, &[1, 0], 2500, &mut acc);
-        assert_eq!(acc.lane_dups, vec![1, 0]);
+        analyze_group(&g, 2500, &mut acc);
+        assert_eq!((acc.lane_dups(0), acc.lane_dups(1)), (0.5, 0.5));
     }
 
     #[test]
@@ -167,7 +184,7 @@ mod tests {
         a.flags = 0;
         b.flags = 0;
         let mut acc = DupAnalysis::new(1);
-        analyze_group(&[a, b], &[0], 2500, &mut acc);
+        analyze_group(&[a, b], 2500, &mut acc);
         assert_eq!((acc.dup_pairs, acc.optical), (1, 0));
     }
 
@@ -179,7 +196,7 @@ mod tests {
             m(0, 1, 5001, 2500, false),
         ];
         let mut acc = DupAnalysis::new(1);
-        analyze_group(&g, &[0], 2500, &mut acc);
+        analyze_group(&g, 2500, &mut acc);
         assert_eq!(acc.optical, 1);
     }
 }

@@ -64,7 +64,7 @@ WarpQC reads SAM (or BAM) from stdin or a path, in aligner order, and fails loud
 - `@SQ` header lines must match the reference FASTA given with `--reference`, by name and length.
 - A header with `@HD SO:coordinate` is rejected with a clear error. So is a read name that reappears after its group was closed: the tool detects this with a recent-names check (the last 65,536 closed names) and exits non-zero. `SO:queryname` and collated input keep templates together and are accepted.
 - **Completeness check:** each paired template must contain both primary mates. Coordinate-sorted input without an `SO` tag shows up as nearly every template incomplete, which a recent-names window can miss. If more than 1% of templates are incomplete (checked every 10,000 templates and at end of input), the run fails with exit code 2; below that, the count is reported with a warning.
-- **Truncation:** a final line without a newline, or a final template missing a mate, is an input error (exit 2). `--expect-reads N` fails the run unless exactly N templates were read; it also pre-sizes the duplicate table.
+- **Truncation:** a final line without a newline, a final template missing a mate (checked even if earlier templates were incomplete), or a header with no records is an input error (exit 2). For BAM input, a stream that ends mid-record is also exit 2. `--expect-reads N` fails the run unless exactly N templates were read; it also pre-sizes the duplicate table.
 
 **Pair grouping**
 
@@ -101,9 +101,9 @@ Every metric is computed in the single streaming pass or in one sweep over the a
 ### Insert size
 
 - **Pairs used:** both mates mapped, primary, same contig, not a duplicate, TLEN ≠ 0. Each pair is counted once, using R2's |TLEN| (Picard). No MAPQ filter. minibwa's TLEN is 5′-to-5′.
-- **Orientation:** split into FR, RF and TANDEM as htsjdk `SamPairUtil.getPairOrientation` (FR when the forward read's start ≤ the reverse read's end). FR is the headline; the others are reported as fractions.
+- **Orientation:** split into FR, RF and TANDEM as htsjdk `SamPairUtil.getPairOrientation` in htsjdk ≥ 5.0.0 / Picard ≥ 3.5.0: FR when the forward read's start ≤ the reverse read's end, using both mates' alignments (the MC tag in htsjdk). Picard 3.4.0 (htsjdk 4.2.0) used a strict `<` and R2's start + TLEN, and calls some dovetailed short-insert pairs RF. The concordance run must therefore use Picard ≥ 3.5.0. FR is the headline; the others are reported as fractions.
 - **Histogram:** 1 bp resolution up to 2,000 bp, plus an overflow bin.
-- **Reported:** median, MAD, mode, 10th/25th/75th/90th percentiles, and mean ± SD, all with htsjdk `Histogram` semantics (median of an even count = mean of the two middle values; percentile = first value whose cumulative fraction reaches p; SD with n − 1). Mean and SD use only inserts ≤ median + 10 × MAD: Picard trims from above only, so a long tail can't inflate the SD. Internally inserts are binned exactly up to 100 kb, so the statistics don't depend on the 2,000 bp report cut-off.
+- **Reported:** median, MAD, mode, 10th/25th/75th/90th percentiles, and mean ± SD, all with htsjdk `Histogram` semantics (median of an even count = mean of the two middle values; percentile = first value whose cumulative fraction reaches p; SD with n − 1). Mean and SD use only inserts ≤ median + 10 × MAD: Picard trims from above only, so a long tail can't inflate the SD. Inserts are binned densely up to 100 kb and sparsely above it, so all statistics are exact and don't depend on the 2,000 bp report cut-off.
 
 ### Duplicates
 
@@ -111,11 +111,11 @@ Every metric is computed in the single streaming pass or in one sweep over the a
 - **Unclipped 5′ position:** for a forward read, POS minus the leading soft and hard clips. For a reverse read, the alignment end plus the trailing clips (htsjdk `getUnclippedStart/End`). It can be negative or beyond the contig end, so it is stored with a 2³¹ bias.
 - **Fragments:** reads whose mate is unmapped, and unpaired reads, get their own one-end signature table. In v0.1 they are deduplicated only against other fragments, not against pair ends; this is a documented deviation from Picard (under 1% of reads).
 - **Counting:** a group of n members contributes n − 1 duplicates. The duplicate rate = (2 × duplicate pairs + duplicate fragments) / (2 × pairs examined + fragments examined), which is Picard's PERCENT\_DUPLICATION.
-- **Optical:** as Picard MarkDuplicates. A group is first split by which end R1 is on (`orientationForOpticalDuplicates`; pairs from opposite strands of a molecule can't be optical copies). Within each part, members on the same flowcell, lane and tile are clustered by single linkage. Two members link when |dx| ≤ d **and** |dy| ≤ d, a per-axis box rather than a Euclidean distance, with d = `--optical-distance` (default 2500, the patterned-flowcell value). A cluster of size k contributes k − 1 optical duplicates. Groups over 300,000 members get no optical calls (Picard's `MAX_OPTICAL_DUPLICATE_SET_SIZE`).
+- **Optical:** as Picard MarkDuplicates, except that WarpQC uses true single linkage. Picard's keeper-based pass can count slightly fewer in chains (0.17 % fewer on a synthetic set). A group is first split by which end R1 is on (`orientationForOpticalDuplicates`; pairs from opposite strands of a molecule can't be optical copies). Within each part, members on the same flowcell, lane and tile are clustered by single linkage. Two members link when |dx| ≤ d **and** |dy| ≤ d, a per-axis box rather than a Euclidean distance, with d = `--optical-distance` (default 2500, the patterned-flowcell value). A cluster of size k contributes k − 1 optical duplicates. Groups over 300,000 members get no optical calls (Picard's `MAX_OPTICAL_DUPLICATE_SET_SIZE`).
 - **Reported:** total, optical and non-optical duplicate rates; the same rates per lane; the cross-lane fraction; and estimated library size (Picard's Lander–Waterman estimate, optical duplicates excluded, reproduced step for step).
 - **Optical rate:** 2 × optical duplicate pairs over the PERCENT\_DUPLICATION denominator.
 - **Cross-lane fraction:** duplicate pairs (n − 1 per group) in groups whose members span more than one `flowcell:lane`, over all duplicate pairs.
-- **Per-lane rates:** pairs only. They are attributed at end of stream, not by first-seen order, so they don't depend on thread timing. In each group the member with the lowest (lane name, tile, x, y) is the keeper, and every other member counts as a duplicate in its own lane.
+- **Per-lane rates:** pairs only, attributed at end of stream so they don't depend on thread timing. A group of n has n − 1 duplicates but no natural keeper, so each member counts (n − 1)/n duplicates in its own lane: the expected value under a randomly chosen keeper. The lanes sum to the total, and no lane is favoured. A fixed keeper rule (for example the lowest lane name) would make the first lane look clean and the last lane dirty whenever most duplicates are cross-lane. The value is kept as integer member counts per group size, so it is exact and order-independent.
 - **Which member counts:** the first-seen member of a group is kept for coverage and insert size; later members are excluded. Counts are deterministic, but which member is kept depends on thread timing. That's accepted (locked decision 5).
 
 ### Coverage
@@ -353,6 +353,7 @@ The reference run takes the same minibwa output, merges it, coordinate-sorts it 
 
 Settings the reference run needs so that it measures the same things:
 - **Read groups:** one per lane (minibwa runs once for all lanes, so add RGs by lane). Picard compares tiles only within a read group, and tile numbers repeat across lanes.
+- **Picard version:** ≥ 3.5.0 (htsjdk ≥ 5.0.0), for the pair-orientation rule (see Insert size).
 - **MarkDuplicates first:** CollectInsertSizeMetrics and CollectWgsMetrics must run on its output.
 - **Restrict to analysis contigs:** CollectWgsMetrics with `INTERVALS` set to the analysis contigs, otherwise its territory includes decoys and unplaced contigs.
 - **Match WarpQC's read selection:** `COUNT_UNPAIRED=true`. Supplementary reads still differ (Picard keeps them), and the gap should be measured.

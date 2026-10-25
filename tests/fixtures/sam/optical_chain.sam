@@ -12,8 +12,8 @@
 @CO	  D (1000,1000) in lane FCA:2: same tile number, other lane -> not optical; cross-lane
 @CO	Group 2 (chr2 21 fwd / 121 rev): E (1000,5000), F (11000,5000) tile 1102 -> not optical
 @CO	Expected: pairs 7, duplicate pairs 5 (group 1: 4, group 2: 1), optical 2,
-@CO	  cross-lane fraction 4/5; per lane (keeper = lowest lane,tile,x,y):
-@CO	  FCA:1 pairs 6, duplicate pairs 4, optical 2; FCA:2 pairs 1, duplicate pairs 1
+@CO	  cross-lane fraction 4/5; per lane, each member of a group of n counts (n-1)/n:
+@CO	  FCA:1 pairs 6, duplicate pairs 4 x 4/5 + 2 x 1/2 = 4.2, optical 2; FCA:2 pairs 1, duplicate pairs 0.8
 A:1:FCA:1:1101:1000:1000	99	chr1	11	60	10M	=	101	100	ACGTACGTAC	IIIIIIIIII	NM:i:0
 A:1:FCA:1:1101:1000:1000	147	chr1	101	60	10M	=	11	-100	ACGTACGTAC	IIIIIIIIII	NM:i:0
 B:1:FCA:1:1101:3000:3000	99	chr1	11	60	10M	=	101	100	ACGTACGTAC	IIIIIIIIII	NM:i:0

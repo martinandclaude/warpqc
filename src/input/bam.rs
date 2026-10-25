@@ -23,12 +23,14 @@ impl<R: Read + Send> LineSource for BamSource<R> {
     }
 
     fn next_line(&mut self, buf: &mut Vec<u8>) -> Result<bool> {
-        if self
-            .reader
-            .read_record(&mut self.record)
-            .ctx("reading BAM record")?
-            == 0
-        {
+        let n = self.reader.read_record(&mut self.record).map_err(|e| {
+            if e.kind() == std::io::ErrorKind::UnexpectedEof {
+                input("BAM input ends in the middle of a record; the stream was truncated")
+            } else {
+                crate::error::io("reading BAM record", e)
+            }
+        })?;
+        if n == 0 {
             return Ok(false);
         }
         self.writer.get_mut().clear();

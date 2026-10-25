@@ -54,10 +54,13 @@ fn optical_chain_and_cross_lane() {
     // Picard estimate with 7 - 2 read pairs and 7 - 5 unique pairs.
     assert_eq!(u(&r, "/duplicates/est_library_size"), 2);
     assert_eq!(u(&r, "/per_lane/FCA:1/pairs_examined"), 6);
-    assert_eq!(u(&r, "/per_lane/FCA:1/duplicate_pairs"), 4);
+    // Fractional attribution: group 1 (n = 5) has 4 members in FCA:1 and 1 in
+    // FCA:2, each counting 4/5; group 2 (n = 2) is all FCA:1, 1/2 each.
+    close(&r, "/per_lane/FCA:1/duplicate_pairs", 4.0 * 0.8 + 2.0 * 0.5);
+    close(&r, "/per_lane/FCA:1/duplicate_rate", 4.2 / 6.0);
     assert_eq!(u(&r, "/per_lane/FCA:1/optical_duplicate_pairs"), 2);
     assert_eq!(u(&r, "/per_lane/FCA:2/pairs_examined"), 1);
-    assert_eq!(u(&r, "/per_lane/FCA:2/duplicate_pairs"), 1);
+    close(&r, "/per_lane/FCA:2/duplicate_pairs", 0.8);
     assert_eq!(
         get(&r, "/inputs/lanes"),
         &serde_json::json!(["FCA:1", "FCA:2"])

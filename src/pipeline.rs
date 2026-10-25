@@ -224,18 +224,11 @@ fn finish(
     mut warnings: Vec<String>,
 ) -> Result<Outcome> {
     let lane_names = sh.lanes.names();
-    let mut sorted: Vec<usize> = (0..lane_names.len()).collect();
-    sorted.sort_by(|&a, &b| lane_names[a].cmp(&lane_names[b]));
-    let mut rank = vec![0u32; lane_names.len().max(1)];
-    for (r, &i) in sorted.iter().enumerate() {
-        rank[i] = r as u32;
-    }
     let nl = lane_names.len();
     let d = cfg.params.optical_distance;
-    let parts = sh.dups.for_each_group(
-        || DupAnalysis::new(nl),
-        |acc, m| analyze_group(m, &rank, d, acc),
-    );
+    let parts = sh
+        .dups
+        .for_each_group(|| DupAnalysis::new(nl), |acc, m| analyze_group(m, d, acc));
     let mut da = DupAnalysis::new(nl);
     for p in &parts {
         da.merge(p);
@@ -295,8 +288,12 @@ fn finish(
                 reads: ls.reads,
                 mapped_fraction: rate(ls.mapped, ls.reads),
                 pairs_examined: ls.pairs_examined,
-                duplicate_pairs: da.lane_dups[i],
-                duplicate_rate: rate(da.lane_dups[i], ls.pairs_examined),
+                duplicate_pairs: da.lane_dups(i),
+                duplicate_rate: if ls.pairs_examined > 0 {
+                    da.lane_dups(i) / ls.pairs_examined as f64
+                } else {
+                    0.0
+                },
                 optical_duplicate_pairs: optical_ok.then_some(da.lane_optical[i]),
                 optical_rate: optical_ok.then(|| rate(da.lane_optical[i], ls.pairs_examined)),
             },

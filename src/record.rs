@@ -230,9 +230,11 @@ fn parse_uint(s: &[u8]) -> Option<u64> {
 #[inline]
 fn parse_int(s: &[u8]) -> Option<i64> {
     match s.first() {
-        Some(b'-') => parse_uint(&s[1..]).map(|v| -(v as i64)),
-        Some(b'+') => parse_uint(&s[1..]).map(|v| v as i64),
-        _ => parse_uint(s).map(|v| v as i64),
+        Some(b'-') => parse_uint(&s[1..])
+            .and_then(|v| i64::try_from(v).ok())
+            .map(|v| -v),
+        Some(b'+') => parse_uint(&s[1..]).and_then(|v| i64::try_from(v).ok()),
+        _ => parse_uint(s).and_then(|v| i64::try_from(v).ok()),
     }
 }
 
@@ -385,6 +387,8 @@ mod tests {
             "r\t99\tchr9\t1\t60\t4M\t=\t1\t0\tACGT\tIIII",
             "r\t99\tchr1\t1\t60\t4M\t=\t1\t0\tACGT\tIII",
             "r\t99\tchr1\t1",
+            // 19 digits: fits u64 but not i64 (review finding: used to wrap).
+            "r\t99\tchr1\t1\t60\t4M\t=\t1\t-9999999999999999999\tACGT\tIIII",
         ] {
             assert!(parse_sam(l.as_bytes(), &mut t, &mut a).is_err(), "{l}");
         }

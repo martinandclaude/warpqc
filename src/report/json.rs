@@ -163,7 +163,8 @@ pub struct Lane {
     pub reads: u64,
     pub mapped_fraction: f64,
     pub pairs_examined: u64,
-    pub duplicate_pairs: u64,
+    /// Fractional: each member of a group of n counts (n - 1)/n here.
+    pub duplicate_pairs: f64,
     pub duplicate_rate: f64,
     pub optical_duplicate_pairs: Option<u64>,
     pub optical_rate: Option<f64>,
@@ -187,6 +188,7 @@ pub fn definitions() -> BTreeMap<&'static str, &'static str> {
         ("alignment.off_target_fraction", "primary mapped reads on non-analysis contigs / primary mapped reads"),
         ("insert_size",
          "one count per pair from R2 |TLEN|: both mates mapped, same contig, non-duplicate, TLEN != 0 (Picard); \
+          orientation as htsjdk >= 5.0.0 / Picard >= 3.5.0 (forward start <= reverse end; Picard 3.4.0 differs on dovetailed pairs); \
           mean and sd over inserts <= median + 10 MAD (Picard's upper-only trim); percentiles as htsjdk getPercentile"),
         ("duplicates.signature",
          "library + per mate (contig, unclipped 5' position, strand), ends in canonical order (Picard)"),
@@ -195,12 +197,12 @@ pub fn definitions() -> BTreeMap<&'static str, &'static str> {
         ("duplicates.fragments",
          "fragments (mate unmapped or unpaired) are compared with fragments only; Picard also marks fragments at pair-end positions"),
         ("duplicates.optical",
-         "Picard: same lane (read group) and tile, |dx| <= d and |dy| <= d, split by R1 orientation, single linkage, k - 1 per cluster"),
+         "same lane (Picard: read group) and tile, |dx| <= d and |dy| <= d, split by R1 orientation as Picard; single linkage, k - 1 per cluster. Picard's keeper-based pass can count slightly fewer in chains (0.17 % fewer on a synthetic test set)"),
         ("duplicates.optical_rate", "2 x optical duplicate pairs over the PERCENT_DUPLICATION denominator"),
         ("duplicates.cross_lane_fraction",
          "duplicate pairs in groups whose members span more than one flowcell:lane / all duplicate pairs"),
         ("per_lane.duplicates",
-         "pairs only; in each group the member with the lowest (lane name, tile, x, y) is the keeper, the others count in their own lane"),
+         "pairs only; each member of a duplicate group of n counts (n - 1)/n duplicates in its own lane (expected value under a random keeper), so no lane is favoured and lanes sum to the total"),
         ("coverage.filtered",
          "primary, non-duplicate, not QC-fail, MAPQ >= min_mapq; M,=,X bases with BQ >= min_bq and not N; mate overlap counted once. \
           Supplementary records excluded (Picard CollectWgsMetrics includes them); reads with an unmapped mate included \

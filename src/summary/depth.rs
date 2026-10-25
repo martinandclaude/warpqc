@@ -86,7 +86,7 @@ pub struct DepthReport {
 }
 
 pub fn report(s: &DepthSweep, layout: &Layout, thresholds: &[u32]) -> DepthReport {
-    let h = &s.hist;
+    let h = &hist::sparse(&s.hist);
     let mean = hist::mean(h);
     let p20 = hist::percentile(h, 0.2);
     let mut per_contig = BTreeMap::new();
@@ -115,11 +115,11 @@ pub fn report(s: &DepthSweep, layout: &Layout, thresholds: &[u32]) -> DepthRepor
         mad: hist::mad(h),
         pct_ge: thresholds
             .iter()
-            .map(|&t| (t.to_string(), hist::fraction_ge(h, t as usize)))
+            .map(|&t| (t.to_string(), hist::fraction_ge(h, t as u64)))
             .collect(),
         fold80: (p20 > 0).then(|| mean / p20 as f64),
         autosomal_mean: (aterr > 0).then(|| asum as f64 / aterr as f64),
         per_contig,
-        histogram: h[..hist::used_len(h).max(1)].to_vec(),
+        histogram: s.hist[..hist::used_len(&s.hist).max(1)].to_vec(),
     }
 }
