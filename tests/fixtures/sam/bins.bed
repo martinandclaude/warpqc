@@ -1,0 +1,5 @@
+track name=test
+# comment
+chr1	60	80
+chr2	0	1
+chrZ	0	100

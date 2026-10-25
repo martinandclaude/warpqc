@@ -2,6 +2,7 @@
 //! histogram and counter is thread-local in `Local` and merged at the end.
 
 pub mod align;
+pub mod bins;
 pub mod coverage;
 pub mod dups;
 pub mod insert;
@@ -144,6 +145,7 @@ pub struct Shared {
     pub lanes: Lanes,
     pub dups: DupTable,
     pub coverage: Coverage,
+    pub bins: bins::BinLayout,
 }
 
 #[derive(Debug, Clone, Default)]
@@ -170,6 +172,8 @@ pub struct Local {
     pub excl: Exclusions,
     pub lanes: Vec<LaneStats>,
     pub unparsed_names: u64,
+    /// Read starts per bin (see `bins`); empty until the first count.
+    pub bin_counts: Vec<u32>,
     lane_cache: HashMap<Vec<u8>, u8>,
     scratch: Scratch,
 }
@@ -208,6 +212,15 @@ impl Local {
             a.pairs_examined += b.pairs_examined;
         }
         self.unparsed_names += o.unparsed_names;
+        if !o.bin_counts.is_empty() {
+            if self.bin_counts.is_empty() {
+                self.bin_counts = o.bin_counts.clone();
+            } else {
+                for (a, b) in self.bin_counts.iter_mut().zip(&o.bin_counts) {
+                    *a += b;
+                }
+            }
+        }
     }
 }
 
@@ -287,7 +300,16 @@ pub fn process(t: &Template, sh: &Shared, lo: &mut Local) -> Result<()> {
         if let Some(a) = a.filter(|a| a.is_mapped() && !a.has(flag::QC_FAIL))
             && n < 2
         {
-            reads[n] = (a, coverage::classify(a, dup[k], &sh.params));
+            let class = coverage::classify(a, dup[k], &sh.params);
+            if class == Class::Pass
+                && let Some(i) = sh.bins.index(a.tid, a.pos)
+            {
+                if lo.bin_counts.is_empty() {
+                    lo.bin_counts = vec![0; sh.bins.len()];
+                }
+                lo.bin_counts[i] += 1;
+            }
+            reads[n] = (a, class);
             n += 1;
         }
     }

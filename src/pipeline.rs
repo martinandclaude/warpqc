@@ -9,6 +9,7 @@ use crate::error::{IoContext, Result, input};
 use crate::input::group::Grouper;
 use crate::input::header::Header;
 use crate::input::sam::{Blocker, LineSource, OrderStats, SamSource};
+use crate::metrics::bins::BinLayout;
 use crate::metrics::coverage::Coverage;
 use crate::metrics::dups::DupTable;
 use crate::metrics::optical::{DupAnalysis, analyze_group};
@@ -16,7 +17,7 @@ use crate::metrics::{Lanes, Layout, Local, Params, Shared, UNKNOWN_LANE, process
 use crate::record::TidMap;
 use crate::reference::{AnalysisSet, Reference};
 use crate::report::json::*;
-use crate::summary::{depth, library};
+use crate::summary::{depth, library, uniformity};
 
 pub const DEFAULT_THRESHOLDS: [u32; 8] = [1, 5, 10, 15, 20, 30, 50, 100];
 /// With more unparseable read names than this fraction, optical duplicate
@@ -72,6 +73,8 @@ pub struct Outcome {
     pub report: Report,
     /// Header tid order, analysis contigs only: (name, filtered, raw).
     pub depth: Vec<(String, Vec<u16>, Option<Vec<u16>>)>,
+    /// Binned contigs: (name, read-start counts, usable).
+    pub bins: Vec<(String, Vec<u32>, Vec<bool>)>,
 }
 
 impl<S: LineSource + ?Sized> LineSource for Box<S> {
@@ -115,6 +118,12 @@ pub fn run(cfg: &RunConfig) -> Result<Outcome> {
     let tids = TidMap::new(&header.names());
 
     let mut warnings: Vec<String> = ref_warning.into_iter().collect();
+    let mut bins = BinLayout::new(&layout, &reference, &tid_to_ref);
+    if let Some(bed) = &cfg.exclude_bed
+        && let Some(w) = bins.exclude_bed(bed, &layout)?
+    {
+        warnings.push(w);
+    }
     if !set.missing_defaults.is_empty() {
         warnings.push(format!(
             "default analysis contigs not in the reference: {}",
@@ -129,6 +138,7 @@ pub fn run(cfg: &RunConfig) -> Result<Outcome> {
         library: 0,
         lanes: Lanes::default(),
         dups: DupTable::new(cfg.expect_reads),
+        bins,
     };
 
     let (order, local) = stream(src, &shared, &tids, cfg)?;
@@ -319,8 +329,28 @@ fn finish(
         )
     });
 
+    let uniformity = uniformity::report(
+        &sh.bins,
+        &lo.bin_counts,
+        &fsweep.hist,
+        uniformity::MIN_STRATUM_BINS,
+    );
+
     let mut depth_copy = Vec::new();
+    let mut bins_copy = Vec::new();
     if cfg.keep_depth {
+        for c in &sh.bins.contigs {
+            let r = c.first..c.first + c.n;
+            bins_copy.push((
+                c.name.clone(),
+                if lo.bin_counts.is_empty() {
+                    vec![0; c.n]
+                } else {
+                    lo.bin_counts[r.clone()].to_vec()
+                },
+                r.map(|i| sh.bins.usable(i)).collect(),
+            ));
+        }
         let f = sh.coverage.filtered.snapshot();
         let r = sh.coverage.raw.as_ref().map(|r| r.snapshot());
         for &tid in &layout.analysis {
@@ -385,6 +415,7 @@ fn finish(
             raw,
             exclusions: ExclusionReport::new(&lo.excl, counted),
         },
+        uniformity,
         per_lane,
         qc_status: QcStatus {
             overall: "not_evaluated",
@@ -394,5 +425,6 @@ fn finish(
     Ok(Outcome {
         report,
         depth: depth_copy,
+        bins: bins_copy,
     })
 }

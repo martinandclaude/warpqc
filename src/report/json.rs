@@ -24,6 +24,7 @@ pub struct Report {
     pub insert_size: InsertSize,
     pub duplicates: Duplicates,
     pub coverage: CoverageSection,
+    pub uniformity: crate::summary::uniformity::UniformityReport,
     pub per_lane: BTreeMap<String, Lane>,
     pub qc_status: QcStatus,
 }

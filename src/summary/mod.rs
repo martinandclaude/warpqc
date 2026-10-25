@@ -3,3 +3,4 @@
 pub mod depth;
 pub mod hist;
 pub mod library;
+pub mod uniformity;
