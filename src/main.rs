@@ -21,6 +21,7 @@ struct Cli {
 }
 
 #[derive(Subcommand)]
+#[allow(clippy::large_enum_variant)] // parsed once at startup
 enum Cmd {
     /// Compute QC metrics from name-grouped SAM/BAM and write <out>.qc.json.
     Run(RunArgs),
