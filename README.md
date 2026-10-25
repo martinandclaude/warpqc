@@ -2,8 +2,8 @@
 
 WarpQC computes whole-genome sequencing QC in one streaming pass over aligner
 output. It reads name-grouped SAM straight from the aligner on stdin, never sorts,
-indexes or writes alignments, and writes one report per sample: JSON, a
-self-contained HTML page and MultiQC custom content. Its job is to
+indexes or writes alignments, and writes one JSON report per sample, plus an
+optional self-contained HTML page and MultiQC custom content. Its job is to
 replace the Picard, GATK and samtools QC steps in a FASTQ-delivery WGS pipeline.
 The name is a nod to Picard.
 
@@ -16,6 +16,57 @@ This is **v0.2**. It covers:
 
 Sex check, mtDNA copy number, SNP fingerprint and contamination come in v0.3.
 [SPEC.md](SPEC.md) is the design document and states every metric definition.
+
+## How it works
+
+```mermaid
+flowchart TD
+    REF[("Reference FASTA<br/>or .warpqc cache")]
+    ALN["minibwa map<br/>all lanes, one run"] -->|"SAM on stdin, aligner order"| RD
+
+    subgraph PASS["Streaming pass"]
+        RD["Reader thread<br/>cuts ~4 MB blocks on template boundaries<br/>checks order, completeness, truncation"]
+        RD -->|"bounded channel"| WK["Workers × N<br/>group records by read name,<br/>one template at a time"]
+        WK <-->|"signature: first seen?"| DT
+        WK -->|"filtered: first-seen, MAPQ ≥ 20, BQ ≥ 20<br/>raw: all primary bases"| DA
+        WK --> TL["Thread-local stats<br/>alignment, MAPQ, insert size,<br/>PMAD bin counts, per lane"]
+        DT[("Shared duplicate table<br/>256 sharded hash tables")]
+        DA[("Shared depth arrays<br/>filtered + raw, atomic u16 per base")]
+    end
+
+    subgraph END["End of stream"]
+        OP["Optical clustering and<br/>per-lane attribution, per duplicate group"]
+        SW["Depth sweep<br/>histogram, % ≥ X, fold-80, evenness"]
+        UN["PMAD raw + GC-corrected,<br/>GC curve, 1 Mb profile"]
+        MG["Merge thread-local stats"]
+        AS["Assemble report<br/>qc_status from<br/>--thresholds, if given"]
+    end
+
+    DT --> OP
+    DA --> SW
+    TL --> UN
+    TL --> MG
+    REF -.->|"N mask"| SW
+    REF -.->|"GC per bin"| UN
+    OP & SW & UN & MG --> AS
+    AS --> JS["prefix.qc.json"]
+    JS -->|"--html, or warpqc render later"| HT["prefix.qc.html"]
+    JS -->|"--multiqc, or warpqc render later"| MQ["prefix.*_mqc.json"]
+```
+
+- **The reader thread** cuts the stream into blocks that never split a template.
+  It is also where aligner order is checked: coordinate-sorted input, a read name
+  that reappears, missing mates and truncation all stop the run with exit 2.
+- **Each worker handles whole templates**, so a pair's signature, mate overlap
+  and insert size are known without seeing any other record. Only facts that span
+  pairs go through shared state:
+  - the duplicate table answers "first time this signature is seen?";
+  - the depth arrays take atomic per-base increments.
+- **Only first-seen pairs** add to filtered depth, insert size and the PMAD bins.
+  Raw depth counts every primary base, duplicates included.
+- **At end of stream**, one parallel sweep turns the accumulators into summary
+  numbers. The JSON is the source of truth, and the HTML and MultiQC files are
+  rendered from it, at run time or later.
 
 ## Install
 
