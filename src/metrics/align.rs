@@ -169,6 +169,21 @@ impl AlignStats {
     }
 }
 
+/// (M/=/X bases, mismatches = NM - inserted - deleted bases) for a read
+/// carrying NM.
+pub fn nm_counts(a: &Aln) -> Option<(u64, u64)> {
+    let nm = a.nm? as u64;
+    let (mut aligned, mut indel) = (0u64, 0u64);
+    for &(o, l) in &a.cigar {
+        if op::is_match(o) {
+            aligned += l as u64;
+        } else if o == op::I || o == op::D {
+            indel += l as u64;
+        }
+    }
+    Some((aligned, nm.saturating_sub(indel)))
+}
+
 fn frac(n: u64, d: u64) -> f64 {
     if d == 0 { 0.0 } else { n as f64 / d as f64 }
 }

@@ -336,6 +336,8 @@ fn finish(
                 },
                 optical_duplicate_pairs: optical_ok.then_some(da.lane_optical[i]),
                 optical_rate: optical_ok.then(|| rate(da.lane_optical[i], ls.pairs_examined)),
+                insert_median: ls.insert_median(),
+                mismatch_rate: ls.mismatch_rate(),
             },
         );
     }

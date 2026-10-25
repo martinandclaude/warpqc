@@ -162,6 +162,36 @@ pub struct LaneStats {
     pub reads: u64,
     pub mapped: u64,
     pub pairs_examined: u64,
+    /// FR insert sizes of first-seen pairs: dense up to 2,000 bp, sparse above.
+    pub insert_dense: Vec<u64>,
+    pub insert_big: std::collections::BTreeMap<u64, u64>,
+    pub nm_aligned_bases: u64,
+    pub mismatches: u64,
+}
+
+const LANE_INSERT_DENSE: usize = 2_001;
+
+impl LaneStats {
+    fn add_insert(&mut self, v: u64) {
+        if (v as usize) < LANE_INSERT_DENSE {
+            if self.insert_dense.is_empty() {
+                self.insert_dense.resize(LANE_INSERT_DENSE, 0);
+            }
+            self.insert_dense[v as usize] += 1;
+        } else {
+            *self.insert_big.entry(v).or_default() += 1;
+        }
+    }
+
+    pub fn insert_median(&self) -> Option<f64> {
+        let mut bins = crate::summary::hist::sparse(&self.insert_dense);
+        bins.extend(self.insert_big.iter().map(|(&v, &c)| (v, c)));
+        (!bins.is_empty()).then(|| crate::summary::hist::median(&bins))
+    }
+
+    pub fn mismatch_rate(&self) -> Option<f64> {
+        (self.nm_aligned_bases > 0).then(|| self.mismatches as f64 / self.nm_aligned_bases as f64)
+    }
 }
 
 #[derive(Default)]
@@ -210,6 +240,19 @@ impl Local {
             a.reads += b.reads;
             a.mapped += b.mapped;
             a.pairs_examined += b.pairs_examined;
+            if !b.insert_dense.is_empty() {
+                if a.insert_dense.is_empty() {
+                    a.insert_dense.resize(LANE_INSERT_DENSE, 0);
+                }
+                for (x, y) in a.insert_dense.iter_mut().zip(&b.insert_dense) {
+                    *x += y;
+                }
+            }
+            for (&v, &c) in &b.insert_big {
+                *a.insert_big.entry(v).or_default() += c;
+            }
+            a.nm_aligned_bases += b.nm_aligned_bases;
+            a.mismatches += b.mismatches;
         }
         self.unparsed_names += o.unparsed_names;
         if !o.bin_counts.is_empty() {
@@ -247,6 +290,10 @@ pub fn process(t: &Template, sh: &Shared, lo: &mut Local) -> Result<()> {
             ls.reads += 1;
             if a.is_mapped() {
                 ls.mapped += 1;
+                if let Some((aligned, mm)) = align::nm_counts(a) {
+                    ls.nm_aligned_bases += aligned;
+                    ls.mismatches += mm;
+                }
             }
         }
     }
@@ -275,6 +322,9 @@ pub fn process(t: &Template, sh: &Shared, lo: &mut Local) -> Result<()> {
             if first {
                 if a.tid == b.tid {
                     lo.insert.add(a, b);
+                    if b.tlen != 0 && insert::orientation(a, b) == insert::Orientation::Fr {
+                        lo.lanes[lane as usize].add_insert(b.tlen.unsigned_abs());
+                    }
                 }
             } else {
                 lo.dup.dup_pairs += 1;

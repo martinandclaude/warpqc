@@ -173,6 +173,12 @@ pub struct Lane {
     pub duplicate_rate: f64,
     pub optical_duplicate_pairs: Option<u64>,
     pub optical_rate: Option<f64>,
+    /// FR pairs, non-duplicate (absent in schema 1.0).
+    #[serde(default)]
+    pub insert_median: Option<f64>,
+    /// As alignment.mismatch_rate, for this lane (absent in schema 1.0).
+    #[serde(default)]
+    pub mismatch_rate: Option<f64>,
 }
 
 pub use crate::report::thresholds::QcStatus;

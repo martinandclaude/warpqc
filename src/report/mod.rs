@@ -1,7 +1,9 @@
 //! Report output. v0.1 writes JSON only.
 
+pub mod html;
 pub mod json;
 pub mod multiqc;
+pub mod svg;
 pub mod thresholds;
 
 use std::io::Write;
@@ -33,10 +35,12 @@ pub fn with_suffix(prefix: &Path, suffix: &str) -> std::path::PathBuf {
     std::path::PathBuf::from(s)
 }
 
-/// Writes the files rendered from a report: the MultiQC custom content
-/// (HTML follows in the same place). Returns the paths written.
+/// Writes the files rendered from a report: `<prefix>.qc.html` and the
+/// MultiQC custom content. Returns the paths written.
 pub fn write_rendered(r: &json::Report, prefix: &Path) -> Result<Vec<std::path::PathBuf>> {
-    let mut written = Vec::new();
+    let html = with_suffix(prefix, ".qc.html");
+    write_atomic(&html, html::render_html(r).as_bytes())?;
+    let mut written = vec![html];
     for (suffix, v) in multiqc::files(r) {
         let p = with_suffix(prefix, suffix);
         let mut b = serde_json::to_vec_pretty(&v).expect("MultiQC JSON serialises");
