@@ -5,14 +5,20 @@ mod common;
 use common::*;
 use std::process::Command;
 
+/// With WARPQC_MULTIQC set (as in CI) MultiQC must work; otherwise the test
+/// skips when `multiqc` is not on PATH.
 fn multiqc() -> Option<String> {
-    let exe = std::env::var("WARPQC_MULTIQC").unwrap_or_else(|_| "multiqc".into());
-    Command::new(&exe)
+    let set = std::env::var("WARPQC_MULTIQC").ok();
+    let exe = set.clone().unwrap_or_else(|| "multiqc".into());
+    let ok = Command::new(&exe)
         .arg("--version")
         .output()
         .ok()
-        .filter(|o| o.status.success())
-        .map(|_| exe)
+        .is_some_and(|o| o.status.success());
+    if set.is_some() && !ok {
+        panic!("WARPQC_MULTIQC={exe} does not run");
+    }
+    ok.then_some(exe)
 }
 
 #[test]
