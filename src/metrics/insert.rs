@@ -4,7 +4,7 @@
 
 use std::collections::BTreeMap;
 
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 
 use crate::record::Aln;
 use crate::summary::hist;
@@ -96,14 +96,14 @@ impl InsertStats {
     }
 }
 
-#[derive(Debug, Serialize)]
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
 pub struct InsertReport {
     pub fr: OrientationReport,
     pub rf: OrientationReport,
     pub tandem: OrientationReport,
 }
 
-#[derive(Debug, Serialize, Default)]
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
 pub struct OrientationReport {
     pub pairs: u64,
     pub fraction: f64,

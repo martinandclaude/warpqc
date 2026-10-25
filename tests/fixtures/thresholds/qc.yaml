@@ -1,0 +1,7 @@
+# Thresholds for the coverage.sam fixture (mean 103/780 = 0.132, raw pct_ge 1 = 0.160,
+# duplicate rate 0.1). Expected: mean fails, pct_ge.1 warns, duplicates pass,
+# fold80 is null -> missing (counts as warn); overall fail.
+coverage.filtered.mean: {fail_below: 0.2, warn_below: 0.3}
+coverage.raw.pct_ge.1: {fail_below: 0.1, warn_below: 0.2}
+duplicates.rate: {warn_above: 0.15, fail_above: 0.3}
+coverage.filtered.fold80: {warn_above: 3}

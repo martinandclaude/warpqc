@@ -132,7 +132,7 @@ pub fn evenness(hist: &[u64]) -> Option<f64> {
     Some(1.0 - (count2 as f64 - sum2 / c) / n as f64)
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
 pub struct GcPoint {
     pub gc: u8,
     pub bins: u64,
@@ -141,20 +141,20 @@ pub struct GcPoint {
     pub normalized_coverage: f64,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
 pub struct ProfileContig {
     pub name: String,
     /// Mean of count / median count over the window's retained bins.
     pub values: Vec<Option<f64>>,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
 pub struct Profile {
     pub window_bp: u64,
     pub contigs: Vec<ProfileContig>,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
 pub struct UniformityReport {
     pub bin_size: u32,
     pub bins_total: u64,

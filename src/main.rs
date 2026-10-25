@@ -76,6 +76,15 @@ struct RunArgs {
     /// Also pre-sizes the duplicate table.
     #[arg(long)]
     expect_reads: Option<u64>,
+    /// Warn/fail bounds per JSON path (YAML); sets qc_status.
+    #[arg(long)]
+    thresholds: Option<PathBuf>,
+    /// Bin size for PMAD and the GC curve.
+    #[arg(long, default_value_t = DEFAULT_BIN_SIZE)]
+    bin_size: u32,
+    /// BED of regions whose bins are left out of PMAD (blacklist, low mappability).
+    #[arg(long)]
+    exclude_bed: Option<PathBuf>,
     /// Output prefix: writes <out>.qc.json.
     #[arg(long)]
     out: PathBuf,
@@ -119,15 +128,16 @@ fn run_cmd(a: RunArgs) -> Result<()> {
     cfg.library = a.library.unwrap_or_default();
     cfg.expect_reads = a.expect_reads;
     cfg.block_size = a.block_size;
+    cfg.thresholds = a.thresholds;
+    cfg.bin_size = a.bin_size;
+    cfg.exclude_bed = a.exclude_bed;
     cfg.command = std::env::args().collect::<Vec<_>>().join(" ");
     let out = run(&cfg)?;
     let json = with_suffix(&a.out, ".qc.json");
     if let Some(dir) = json.parent().filter(|d| !d.as_os_str().is_empty()) {
         std::fs::create_dir_all(dir).ctx(format!("creating {}", dir.display()))?;
     }
-    let mut bytes = serde_json::to_vec_pretty(&out.report).expect("report serialises");
-    bytes.push(b'\n');
-    write_atomic(&json, &bytes)
+    write_atomic(&json, &out.report.to_json())
 }
 
 fn main() -> ExitCode {

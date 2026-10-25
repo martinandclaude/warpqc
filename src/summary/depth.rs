@@ -5,7 +5,7 @@ use std::collections::BTreeMap;
 use std::sync::atomic::{AtomicU16, Ordering::Relaxed};
 
 use rayon::prelude::*;
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 
 use crate::metrics::Layout;
 use crate::reference::is_autosome;
@@ -67,7 +67,7 @@ pub fn sweep(depth: &[AtomicU16], layout: &Layout) -> DepthSweep {
     DepthSweep { hist, per_contig }
 }
 
-#[derive(Debug, Serialize)]
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
 pub struct DepthReport {
     pub territory: u64,
     pub mean: f64,

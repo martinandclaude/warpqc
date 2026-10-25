@@ -1,0 +1,2 @@
+# A path to an object, not a number: rejected (exit 2).
+coverage.filtered: {fail_below: 1}

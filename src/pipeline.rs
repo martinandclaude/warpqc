@@ -17,6 +17,7 @@ use crate::metrics::{Lanes, Layout, Local, Params, Shared, UNKNOWN_LANE, process
 use crate::record::TidMap;
 use crate::reference::{AnalysisSet, Reference};
 use crate::report::json::*;
+use crate::report::thresholds::Thresholds;
 use crate::summary::{depth, library, uniformity};
 
 pub const DEFAULT_THRESHOLDS: [u32; 8] = [1, 5, 10, 15, 20, 30, 50, 100];
@@ -117,6 +118,24 @@ pub fn run(cfg: &RunConfig) -> Result<Outcome> {
     let layout = Layout::new(&reference, &set, &tid_to_ref)?;
     let tids = TidMap::new(&header.names());
 
+    let thresholds = match &cfg.thresholds {
+        Some(p) => {
+            let t = Thresholds::load(p)?;
+            let names: Vec<String> = layout
+                .analysis
+                .iter()
+                .map(|&t| layout.names[t as usize].clone())
+                .collect();
+            t.validate(&Report::skeleton(
+                &cfg.depth_thresholds,
+                &names,
+                cfg.params.raw,
+            ))?;
+            Some(t)
+        }
+        None => None,
+    };
+
     let mut warnings: Vec<String> = ref_warning.into_iter().collect();
     let mut bins = BinLayout::new(&layout, &reference, &tid_to_ref);
     if let Some(bed) = &cfg.exclude_bed
@@ -152,7 +171,11 @@ pub fn run(cfg: &RunConfig) -> Result<Outcome> {
         )));
     }
 
-    finish(shared, local, order, &reference, cfg, warnings)
+    let mut out = finish(shared, local, order, &reference, cfg, warnings)?;
+    if let Some(t) = &thresholds {
+        out.report.apply_thresholds(t);
+    }
+    Ok(out)
 }
 
 fn stream(
@@ -369,10 +392,10 @@ fn finish(
     let mut lanes_sorted = lane_names.clone();
     lanes_sorted.sort();
     let report = Report {
-        schema_version: SCHEMA_VERSION,
+        schema_version: SCHEMA_VERSION.into(),
         tool: Tool {
-            name: "warpqc",
-            version: env!("CARGO_PKG_VERSION"),
+            name: "warpqc".into(),
+            version: env!("CARGO_PKG_VERSION").into(),
             command: cfg.command.clone(),
         },
         sample: cfg.sample.clone(),
@@ -417,10 +440,7 @@ fn finish(
         },
         uniformity,
         per_lane,
-        qc_status: QcStatus {
-            overall: "not_evaluated",
-            checks: vec![],
-        },
+        qc_status: QcStatus::not_evaluated(),
     };
     Ok(Outcome {
         report,

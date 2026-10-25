@@ -2,41 +2,43 @@
 
 use std::collections::BTreeMap;
 
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 
 use crate::metrics::align::AlignReport;
 use crate::metrics::coverage::Exclusions;
 use crate::metrics::insert::{InsertReport, OrientationReport};
 use crate::summary::depth::DepthReport;
 
-pub const SCHEMA_VERSION: &str = "1.0";
+pub const SCHEMA_VERSION: &str = "1.1";
 
-#[derive(Debug, Serialize)]
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
 pub struct Report {
-    pub schema_version: &'static str,
+    pub schema_version: String,
     pub tool: Tool,
     pub sample: String,
     pub inputs: Inputs,
     pub parameters: Parameters,
-    pub definitions: BTreeMap<&'static str, &'static str>,
+    pub definitions: BTreeMap<String, String>,
     pub warnings: Vec<String>,
     pub alignment: Alignment,
     pub insert_size: InsertSize,
     pub duplicates: Duplicates,
     pub coverage: CoverageSection,
+    /// Absent in schema 1.0 reports.
+    #[serde(default)]
     pub uniformity: crate::summary::uniformity::UniformityReport,
     pub per_lane: BTreeMap<String, Lane>,
     pub qc_status: QcStatus,
 }
 
-#[derive(Debug, Serialize)]
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
 pub struct Tool {
-    pub name: &'static str,
-    pub version: &'static str,
+    pub name: String,
+    pub version: String,
     pub command: String,
 }
 
-#[derive(Debug, Serialize)]
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
 pub struct Inputs {
     pub input: String,
     pub reference: String,
@@ -45,7 +47,7 @@ pub struct Inputs {
     pub lanes: Vec<String>,
 }
 
-#[derive(Debug, Serialize)]
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
 pub struct Parameters {
     pub min_mapq: u8,
     pub min_bq: u8,
@@ -56,19 +58,19 @@ pub struct Parameters {
     pub analysis_contigs: Vec<String>,
 }
 
-#[derive(Debug, Serialize)]
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
 pub struct Alignment {
     #[serde(flatten)]
     pub stats: AlignReport,
     pub incomplete_templates: u64,
 }
 
-#[derive(Debug, Serialize)]
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
 pub struct InsertSize {
     /// FR is the headline orientation.
     #[serde(flatten)]
     pub fr: OrientationReport,
-    pub orientation_fractions: BTreeMap<&'static str, f64>,
+    pub orientation_fractions: BTreeMap<String, f64>,
     pub rf: OrientationReport,
     pub tandem: OrientationReport,
 }
@@ -81,6 +83,7 @@ impl From<InsertReport> for InsertSize {
             ("tandem", r.tandem.fraction),
         ]
         .into_iter()
+        .map(|(k, v)| (k.to_string(), v))
         .collect();
         let mut rf = r.rf;
         let mut tandem = r.tandem;
@@ -95,7 +98,7 @@ impl From<InsertReport> for InsertSize {
     }
 }
 
-#[derive(Debug, Serialize)]
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
 pub struct Duplicates {
     /// Picard PERCENT_DUPLICATION.
     pub rate: f64,
@@ -113,14 +116,14 @@ pub struct Duplicates {
     pub distinct_pair_signatures: u64,
 }
 
-#[derive(Debug, Serialize)]
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
 pub struct CoverageSection {
     pub filtered: DepthReport,
     pub raw: Option<DepthReport>,
     pub exclusions: ExclusionReport,
 }
 
-#[derive(Debug, Serialize)]
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
 pub struct ExclusionReport {
     pub mapq: f64,
     pub dupe: f64,
@@ -128,7 +131,7 @@ pub struct ExclusionReport {
     pub overlap: f64,
     pub capped: f64,
     pub total: f64,
-    pub bases: BTreeMap<&'static str, u64>,
+    pub bases: BTreeMap<String, u64>,
 }
 
 impl ExclusionReport {
@@ -153,12 +156,13 @@ impl ExclusionReport {
                 ("capped", e.capped),
             ]
             .into_iter()
+            .map(|(k, v)| (k.to_string(), v))
             .collect(),
         }
     }
 }
 
-#[derive(Debug, Serialize)]
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
 pub struct Lane {
     pub templates: u64,
     pub reads: u64,
@@ -171,13 +175,54 @@ pub struct Lane {
     pub optical_rate: Option<f64>,
 }
 
-#[derive(Debug, Serialize)]
-pub struct QcStatus {
-    pub overall: &'static str,
-    pub checks: Vec<serde_json::Value>,
+pub use crate::report::thresholds::QcStatus;
+
+impl Report {
+    /// Reads a report written by any 1.x version.
+    pub fn from_json(bytes: &[u8]) -> crate::error::Result<Report> {
+        let r: Report = serde_json::from_slice(bytes)
+            .map_err(|e| crate::error::input(format!("not a WarpQC report: {e}")))?;
+        if !r.schema_version.starts_with("1.") {
+            return Err(crate::error::input(format!(
+                "report schema {} is not supported (expected 1.x)",
+                r.schema_version
+            )));
+        }
+        Ok(r)
+    }
+
+    pub fn to_json(&self) -> Vec<u8> {
+        let mut b = serde_json::to_vec_pretty(self).expect("report serialises");
+        b.push(b'\n');
+        b
+    }
+
+    pub fn apply_thresholds(&mut self, t: &crate::report::thresholds::Thresholds) {
+        let v = serde_json::to_value(&*self).expect("report serialises");
+        self.qc_status = t.evaluate(&v);
+    }
+
+    /// A report with the shape of a real one for this configuration (all
+    /// values zero or null), used to check threshold paths before a run.
+    pub fn skeleton(thresholds: &[u32], contigs: &[String], raw: bool) -> serde_json::Value {
+        let depth = DepthReport {
+            pct_ge: thresholds.iter().map(|t| (t.to_string(), 0.0)).collect(),
+            per_contig: contigs.iter().map(|c| (c.clone(), 0.0)).collect(),
+            ..Default::default()
+        };
+        let r = Report {
+            coverage: CoverageSection {
+                filtered: depth.clone(),
+                raw: raw.then_some(depth),
+                ..Default::default()
+            },
+            ..Default::default()
+        };
+        serde_json::to_value(&r).expect("report serialises")
+    }
 }
 
-pub fn definitions() -> BTreeMap<&'static str, &'static str> {
+pub fn definitions() -> BTreeMap<String, String> {
     [
         ("alignment.chimeric_read_fraction",
          "primary reads with the mate on another contig and own MAPQ >= 5 (samtools flagstat), over primary reads with both mates mapped"),
@@ -217,5 +262,6 @@ pub fn definitions() -> BTreeMap<&'static str, &'static str> {
           over counted + excluded bases. Picard charges whole reads for MAPQ and duplicates"),
     ]
     .into_iter()
+    .map(|(k, v)| (k.to_string(), v.to_string()))
     .collect()
 }

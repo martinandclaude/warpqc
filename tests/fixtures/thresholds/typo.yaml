@@ -1,0 +1,2 @@
+# coverage.filtered.meen does not exist: rejected before streaming (exit 2).
+coverage.filtered.meen: {fail_below: 25}

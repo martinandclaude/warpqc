@@ -1,7 +1,7 @@
 //! Alignment stats: flagstat-style counts, MAPQ, clipping, mismatches,
 //! indels, chimeras and off-target contigs.
 
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 
 use crate::input::group::Template;
 use crate::metrics::Layout;
@@ -173,7 +173,7 @@ fn frac(n: u64, d: u64) -> f64 {
     if d == 0 { 0.0 } else { n as f64 / d as f64 }
 }
 
-#[derive(Debug, Serialize)]
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
 pub struct AlignReport {
     pub total_templates: u64,
     pub total_records: u64,
