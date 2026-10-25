@@ -62,7 +62,9 @@ WarpQC reads SAM (or BAM) from stdin or a path, in aligner order, and fails loud
 - SAM text from stdin (`-`), the primary mode, or a SAM/BAM file path for tests.
 - Records in aligner order: all records for one read name are adjacent. That covers the primary R1 and R2 plus any supplementary and secondary records.
 - `@SQ` header lines must match the reference FASTA given with `--reference`, by name and length.
-- A header with `@HD SO:coordinate` is rejected with a clear error. So is a read name that reappears after its group was closed: the tool detects this with a small recent-names check and exits non-zero.
+- A header with `@HD SO:coordinate` is rejected with a clear error. So is a read name that reappears after its group was closed: the tool detects this with a recent-names check (the last 65,536 closed names) and exits non-zero. `SO:queryname` and collated input keep templates together and are accepted.
+- **Completeness check:** each paired template must contain both primary mates. Coordinate-sorted input without an `SO` tag shows up as nearly every template incomplete, which a recent-names window can miss. If more than 1% of templates are incomplete (checked every 10,000 templates and at end of input), the run fails with exit code 2; below that, the count is reported with a warning.
+- **Truncation:** a final line without a newline, or a final template missing a mate, is an input error (exit 2). `--expect-reads N` fails the run unless exactly N templates were read; it also pre-sizes the duplicate table.
 
 **Pair grouping**
 
@@ -72,16 +74,17 @@ WarpQC reads SAM (or BAM) from stdin or a path, in aligner order, and fails loud
 
 **Lane and tile from the read name**
 
-- Parse the Illumina name `instrument:run:flowcell:lane:tile:x:y`. The lane key is `flowcell:lane`.
-- If a name doesn't parse, optical duplicate detection is disabled with a warning in the JSON. All other metrics still run, and everything is pooled into one "unknown" lane.
+- Parse the Illumina name `instrument:run:flowcell:lane:tile:x:y`, optionally with an eighth UMI field and a `/1` `/2` suffix. The lane key is `flowcell:lane`.
+- Names that don't parse are pooled into one "unknown" lane and excluded from optical detection, and the JSON carries a warning with the count. If more than half the templates have unparseable names, optical duplicate detection is reported as disabled (optical fields `null`). All other metrics still run.
 - The library is a single library per sample by default. `--library` can override the name used in the report.
 
 **Reference and contig set**
 
-- `--reference GRCh38.fa` (with `.fai`) is required. It's used once at startup to build the non-N mask and the per-bin GC content.
+- `--reference GRCh38.fa` (with `.fai`) is required. It's used once at startup to build the non-N mask and the per-bin GC content (v0.2). In v0.1 it is read through the `.fai` directly; noodles is used only for BAM input.
 - The default analysis contigs are chr1–22, chrX, chrY and chrM. `--contigs` takes a list or file to override this.
 - Reads on other contigs (decoys, ALT, HLA, EBV, unplaced) are counted and reported as a fraction of mapped reads. They're excluded from coverage.
-- The mask, GC table and contig list can be cached to a small sidecar file (`--ref-cache`) so startup takes seconds.
+- The mask, GC table and contig list can be cached to a small sidecar file (`--ref-cache`) so startup takes seconds. The cache stores contig lengths, N runs and per-contig M5, and is checked against the MD5 of the FASTA's `.fai`; GC is added in v0.2.
+- `reference_md5` in the JSON is the MD5 over the ordered `name<TAB>length<TAB>M5` lines, so it doesn't depend on FASTA line width.
 
 ## Metric definitions
 
@@ -91,35 +94,39 @@ Every metric is computed in the single streaming pass or in one sweep over the a
 
 - **Counts:** total templates, total reads, primary mapped %, both mates mapped %, properly paired %, singletons %, secondary and supplementary records, and QC-fail reads.
 - **MAPQ:** a 0–60 histogram, plus fractions at MAPQ 0, ≥20 and ≥60.
-- **Chimeric pairs:** mates on different contigs, counting only pairs where both mates have MAPQ ≥5 (the samtools convention).
-- **Clipping and errors:** soft-clipped base fraction, mismatch rate ((NM − inserted and deleted bases) / aligned bases), and indel rate per 100 aligned bases.
+- **Chimeras:** two numbers. `chimeric_read_fraction` is the samtools flagstat convention: primary reads whose mate is on another contig and whose *own* MAPQ is ≥5, over reads with both mates mapped. `chimeric_pair_fraction` counts templates with mates on different contigs and *both* MAPQ ≥5, over templates with both mates mapped. (The original text called the both-mates rule "the samtools convention"; samtools checks only the read's own MAPQ.)
+- **Clipping and errors:** soft-clipped base fraction, mismatch rate ((NM − inserted and deleted bases) / aligned bases, over primary mapped reads that carry NM; minibwa always writes NM), and indel rate as insertion plus deletion *events* per 100 aligned bases (Picard PF\_INDEL\_RATE).
 - **Off-target contigs:** the fraction of mapped reads on non-analysis contigs.
 
 ### Insert size
 
-- **Pairs used:** both mates mapped, primary, same contig, not a duplicate. Each pair is counted once, using |TLEN|.
-- **Orientation:** split into FR, RF and TANDEM. FR is the headline; the others are reported as fractions.
+- **Pairs used:** both mates mapped, primary, same contig, not a duplicate, TLEN ≠ 0. Each pair is counted once, using R2's |TLEN| (Picard). No MAPQ filter. minibwa's TLEN is 5′-to-5′.
+- **Orientation:** split into FR, RF and TANDEM as htsjdk `SamPairUtil.getPairOrientation` (FR when the forward read's start ≤ the reverse read's end). FR is the headline; the others are reported as fractions.
 - **Histogram:** 1 bp resolution up to 2,000 bp, plus an overflow bin.
-- **Reported:** median, MAD, mode, 10th/25th/75th/90th percentiles, and mean ± SD. Mean and SD are computed only within median ± 10 × MAD, as Picard does, so a long tail can't inflate the SD.
+- **Reported:** median, MAD, mode, 10th/25th/75th/90th percentiles, and mean ± SD, all with htsjdk `Histogram` semantics (median of an even count = mean of the two middle values; percentile = first value whose cumulative fraction reaches p; SD with n − 1). Mean and SD use only inserts ≤ median + 10 × MAD: Picard trims from above only, so a long tail can't inflate the SD. Internally inserts are binned exactly up to 100 kb, so the statistics don't depend on the 2,000 bp report cut-off.
 
 ### Duplicates
 
-- **Pair signature:** library, plus (contig, unclipped 5′ position, strand) for each mate. The two ends are ordered canonically by contig index and position.
-- **Unclipped 5′ position:** for a forward read, POS minus the leading soft and hard clips. For a reverse read, the alignment end plus the trailing clips.
-- **Fragments:** reads whose mate is unmapped get their own one-end signature table. In v0.1 they are deduplicated only against other fragments, not against pair ends; this is a documented deviation from Picard (under 1% of reads).
+- **Pair signature:** library, plus (contig, unclipped 5′ position, strand) for each mate. The two ends are ordered canonically by the full (contig, position, strand) tuple, so swapping R1 and R2 never changes the key, including when both ends share a position. This matches Picard's set criterion, where a same-position RF pair is forced to FR.
+- **Unclipped 5′ position:** for a forward read, POS minus the leading soft and hard clips. For a reverse read, the alignment end plus the trailing clips (htsjdk `getUnclippedStart/End`). It can be negative or beyond the contig end, so it is stored with a 2³¹ bias.
+- **Fragments:** reads whose mate is unmapped, and unpaired reads, get their own one-end signature table. In v0.1 they are deduplicated only against other fragments, not against pair ends; this is a documented deviation from Picard (under 1% of reads).
 - **Counting:** a group of n members contributes n − 1 duplicates. The duplicate rate = (2 × duplicate pairs + duplicate fragments) / (2 × pairs examined + fragments examined), which is Picard's PERCENT\_DUPLICATION.
-- **Optical:** within a group, members on the same flowcell, lane and tile are clustered by single linkage. Two members link when their Euclidean (x, y) distance is ≤ `--optical-distance` (default 2500, the patterned-flowcell value). A cluster of size k contributes k − 1 optical duplicates.
-- **Reported:** total, optical and non-optical duplicate rates; the same rates per lane; the cross-lane fraction (duplicate pairs whose group spans more than one lane); and estimated library size (Picard's Lander–Waterman estimate, optical duplicates excluded).
+- **Optical:** as Picard MarkDuplicates. A group is first split by which end R1 is on (`orientationForOpticalDuplicates`; pairs from opposite strands of a molecule can't be optical copies). Within each part, members on the same flowcell, lane and tile are clustered by single linkage. Two members link when |dx| ≤ d **and** |dy| ≤ d, a per-axis box rather than a Euclidean distance, with d = `--optical-distance` (default 2500, the patterned-flowcell value). A cluster of size k contributes k − 1 optical duplicates. Groups over 300,000 members get no optical calls (Picard's `MAX_OPTICAL_DUPLICATE_SET_SIZE`).
+- **Reported:** total, optical and non-optical duplicate rates; the same rates per lane; the cross-lane fraction; and estimated library size (Picard's Lander–Waterman estimate, optical duplicates excluded, reproduced step for step).
+- **Optical rate:** 2 × optical duplicate pairs over the PERCENT\_DUPLICATION denominator.
+- **Cross-lane fraction:** duplicate pairs (n − 1 per group) in groups whose members span more than one `flowcell:lane`, over all duplicate pairs.
+- **Per-lane rates:** pairs only. They are attributed at end of stream, not by first-seen order, so they don't depend on thread timing. In each group the member with the lowest (lane name, tile, x, y) is the keeper, and every other member counts as a duplicate in its own lane.
 - **Which member counts:** the first-seen member of a group is kept for coverage and insert size; later members are excluded. Counts are deterministic, but which member is kept depends on thread timing. That's accepted (locked decision 5).
 
 ### Coverage
 
 - **Filtered depth (headline):** primary, non-duplicate, not QC-fail, MAPQ ≥20. Only M, = and X bases count, and only those with BQ ≥20.
 - **Mate overlap:** a position covered by both mates is counted once, if at least one mate's base passes BQ.
-- **Raw depth:** all primary mapped M, = and X bases, duplicates included, with no MAPQ or BQ filter. It's on by default; `--no-raw` turns it off and saves 6.2 GB.
+- **Raw depth:** primary mapped M, = and X bases, not QC-fail, duplicates included, with no MAPQ or BQ filter. Mate overlap is counted once, so raw depth matches mosdepth's default mode run with `-F 2820` (which excludes supplementary and QC-fail reads and keeps duplicates); mosdepth also counts overlap once and doesn't count deletions. It's on by default; `--no-raw` turns it off and saves 6.2 GB.
+- **Supplementary and unpaired reads:** supplementary records never add depth. Reads whose mate is unmapped do count in filtered depth. Both differ from Picard CollectWgsMetrics, which keeps supplementary reads (it filters only secondary) and by default drops reads with an unmapped mate (`COUNT_UNPAIRED=false`).
 - **Denominator:** non-N positions of the analysis contigs. Depth saturates at 65,535.
-- **Reported:** mean, median, SD and MAD, and % of bases at ≥1, 5, 10, 15, 20, 30, 50 and 100× (the list is configurable with `--depth-thresholds`). Also fold-80 penalty (mean / 20th-percentile depth), a per-contig mean, an autosomal mean, and the full depth histogram.
-- **Exclusion breakdown:** Picard-style fractions of bases lost to MAPQ, duplicates, BQ and overlap. These show at a glance *why* filtered coverage is lower than raw.
+- **Reported:** mean, median, SD and MAD, and % of bases at ≥1, 5, 10, 15, 20, 30, 50 and 100× (the list is configurable with `--depth-thresholds`). Also the fold-80 penalty (mean / 20th-percentile depth, zero-depth positions included as in Picard; `null` when that percentile is 0), a per-contig mean, an autosomal mean, and the full depth histogram up to the highest depth seen.
+- **Exclusion breakdown:** Picard-style fractions of bases lost to MAPQ, duplicates, BQ, overlap and the depth cap. These show at a glance *why* filtered coverage is lower than raw. Each base is counted at non-N analysis positions under the first reason that applies, in Picard's order (MAPQ, duplicate, BQ, overlap, cap), and the denominator is counted bases plus all excluded bases. One difference: Picard charges MAPQ and duplicate exclusions as whole-read aligned bases.
 
 ### Uniformity and PMAD
 
@@ -184,7 +191,7 @@ The numbers above are placeholders. Real bounds should be set from the first 20�
 
 **Exit codes**
 
-- **0:** report written, whatever the QC status.
+- **0:** report written, whatever the QC status. In v0.1 there are no thresholds, so `qc_status.overall` is `"not_evaluated"`.
 - **2:** input error: bad header, coordinate-sorted input, or a reference mismatch.
 - **3:** I/O or resource error.
 
@@ -275,8 +282,10 @@ src/
   metrics/dups.rs    signature packing, sharded table, fragment table
   metrics/optical.rs single-linkage clustering per group
   metrics/coverage.rs depth arrays, overlap handling, exclusion counters
-  metrics/bins.rs    read-start bin counts
+  metrics/bins.rs    read-start bin counts (v0.2)
+  summary/hist.rs    htsjdk-compatible histogram statistics
   summary/*.rs       final sweep: depth histogram, PMAD, GC curve, evenness, library size
+  pipeline.rs        reader thread, workers, merge, report assembly
   report/{json,html,svg,multiqc,thresholds}.rs
 ```
 
@@ -286,15 +295,16 @@ src/
 - Each worker handles whole templates. It updates its own thread-local histograms (alignment, insert size, bins, per lane).
 - To decide duplicate status, the worker inserts the pair's signature into the duplicate-table shard. The insert returns "first seen" or "duplicate".
 - Only first-seen pairs add to the filtered depth array and the insert-size histogram. The raw array is updated for every pair.
-- Depth arrays are `[AtomicU16]` using relaxed `fetch_add`, saturating at 65,535 (check before the add). Reads spread across the genome, so contention is negligible.
+- Depth arrays are `[AtomicU16]`, saturating at 65,535 through a relaxed compare-exchange loop (`fetch_update` with `checked_add`). A check followed by a `fetch_add` can wrap to 0 when threads race. Reads spread across the genome, so contention is negligible.
 - At end of stream, the thread-local accumulators are merged, then `rayon` sweeps the arrays per contig for the histogram, bins and GC.
 
 **Duplicate table encoding**
 
 - **Key:** packed into a `u128`. Each end gets 16 bits of contig index (decoy-containing references have thousands of contigs), 32 bits of unclipped 5′ position and 1 strand bit; library takes 8 bits. That is 106 bits, with no hashing collisions possible.
-- **Value:** member count (u16) plus the first member's (lane u8, tile u16, x u32, y u32).
-- **Further members:** coordinates of the second and later members go into a small side map. That map is only allocated for groups with ≥2 members.
-- **Optical clustering:** runs at end of stream over the side map only.
+- **Value:** the first member's (lane u8, flags u8, tile u16, x u32, y u32): 12 bytes. The flags hold the R1-orientation bit for optical detection and "has a location". The key is stored as `[u32; 4]`, so a table slot is 28 bytes plus one control byte. No count is stored; counts come from the per-thread counters and the side list.
+- **Further members:** the second and later members go into an append-only `(key, member)` list per shard (28 bytes each). At end of stream that list is sorted by key, and each group is assembled from it plus the first member in the table.
+- **Optical clustering:** runs at end of stream over those groups only.
+- **Shard choice:** bits 40–47 of the hash, which hashbrown uses neither for the bucket index nor for its 7-bit tag.
 
 **Memory budget at 30× (estimate, to be measured)**
 
@@ -302,11 +312,12 @@ src/
 | --- | --- |
 | Filtered depth array (u16 × 3.1 Gb) | 6.2 GB |
 | Raw depth array (`--no-raw` drops it) | 6.2 GB |
-| Duplicate table, about 310 M pairs × \~37 B | \~11.5 GB |
+| Duplicate table, about 310 M pairs × 29 B per slot ÷ load factor (0.44–0.87) | \~10–20 GB |
+| Side list of duplicate members, 28 B each (\~31 M at 10% duplicates) | \~0.9 GB |
 | Non-N bitmask + bins + GC | \~0.5 GB |
-| **Total** | **\~24 GB** |
+| **Total** | **\~24–34 GB** |
 
-The duplicate table grows linearly with depth, to roughly 23 GB at 60×.
+The duplicate table grows linearly with depth, to roughly 20–40 GB at 60×. hashbrown's power-of-two bucket counts set where in the range a sample lands; `--expect-reads` reserves capacity up front, which avoids the transient copy during growth but not the load-factor spread. These are estimates to replace with measured RSS.
 
 **Performance targets**
 
@@ -322,14 +333,14 @@ Correctness is shown in three layers: synthetic unit fixtures, a small golden da
 
 **Unit fixtures (hand-written SAM, a few records each)**
 
-- [ ] Overlapping mates: an overlap is counted once; a base failing BQ in one mate is still counted from the other.
-- [ ] Duplicates where the reverse read carries trailing soft clips, so the alignment ends differ but the unclipped 5′ ends match. They must group together.
-- [ ] Mate order invariance: the same pair with R1 and R2 swapped gives the same signature (property test with `proptest`).
-- [ ] Optical chain: A–B and B–C within the distance but A–C not, giving one cluster of 3 and 2 optical duplicates. A second lane carries a copy, which must count as a cross-lane duplicate.
-- [ ] Fragment duplicates; supplementary and secondary records excluded from coverage and duplicates.
-- [ ] Depth saturation at 65,535; N-masked positions excluded from the denominator.
-- [ ] PMAD: no difference across a contig boundary; zero-count bins dropped; a hand-computed vector matches exactly.
-- [ ] Input errors: `SO:coordinate` header, a reappearing read name, `@SQ` mismatch against the reference, unparseable read names (warning, run continues).
+- [x] Overlapping mates: an overlap is counted once; a base failing BQ in one mate is still counted from the other.
+- [x] Duplicates where the reverse read carries trailing soft clips, so the alignment ends differ but the unclipped 5′ ends match. They must group together.
+- [x] Mate order invariance: the same pair with R1 and R2 swapped gives the same signature (property test with `proptest`).
+- [x] Optical chain: A–B and B–C within the distance but A–C not, giving one cluster of 3 and 2 optical duplicates. A second lane carries a copy, which must count as a cross-lane duplicate.
+- [x] Fragment duplicates; supplementary and secondary records excluded from coverage and duplicates.
+- [x] Depth saturation at 65,535; N-masked positions excluded from the denominator.
+- [ ] (v0.2) PMAD: no difference across a contig boundary; zero-count bins dropped; a hand-computed vector matches exactly.
+- [x] Input errors: `SO:coordinate` header, a reappearing read name, `@SQ` mismatch against the reference, unparseable read names (warning, run continues).
 
 **Golden dataset**
 
@@ -339,6 +350,13 @@ Correctness is shown in three layers: synthetic unit fixtures, a small golden da
 **Full-genome concordance (one PCR-free GIAB sample, then 10 production samples)**
 
 The reference run takes the same minibwa output, merges it, coordinate-sorts it and runs the classic tools on it. The PMAD comparison uses DRAGEN 4.5 on the same FASTQ.
+
+Settings the reference run needs so that it measures the same things:
+- **Read groups:** one per lane (minibwa runs once for all lanes, so add RGs by lane). Picard compares tiles only within a read group, and tile numbers repeat across lanes.
+- **MarkDuplicates first:** CollectInsertSizeMetrics and CollectWgsMetrics must run on its output.
+- **Restrict to analysis contigs:** CollectWgsMetrics with `INTERVALS` set to the analysis contigs, otherwise its territory includes decoys and unplaced contigs.
+- **Match WarpQC's read selection:** `COUNT_UNPAIRED=true`. Supplementary reads still differ (Picard keeps them), and the gap should be measured.
+- **mosdepth for raw depth:** `-F 2820 -Q 0`, default mode, not `--fast-mode`.
 
 | WarpQC metric | Compared against | Proposed acceptance |
 | --- | --- | --- |
@@ -353,7 +371,7 @@ The reference run takes the same minibwa output, merges it, coordinate-sorts it 
 
 **Robustness and performance**
 
-- [ ] Kill minibwa mid-stream: the job must fail, with no report written.
+- [ ] Kill minibwa mid-stream: the job must fail, with no report written. If the stream stops cleanly between records, WarpQC sees a normal EOF, so this is guaranteed by `set -o pipefail` plus Snakemake deleting the outputs of failed jobs, not by WarpQC alone. WarpQC's share: write to a temporary file and rename at the end; exit 2 on a partial last line or an incomplete last template; and exit 2 on an `--expect-reads` mismatch. The rule should always pass `--expect-reads`, taken from the bcl-convert demultiplexing stats.
 - [ ] A 30× sample on a worker node: record wall time and peak RSS for minibwa alone and for minibwa piped into WarpQC. Use them to set the rule's SLURM defaults.
 - [ ] A 60× sample, to check that duplicate-table memory scales as estimated.
 
@@ -373,6 +391,8 @@ v0.1 is the scope of the first Claude Code handoff. v0.2 and v0.3 start only aft
 - [ ] Choose the reference build: GRCh38 no-ALT analysis set, with or without the hs38d1 decoys. minibwa needs no-ALT.
 - [ ] Choose the `--exclude-bed` for PMAD bins (ENCODE blacklist, a mappability track, or both).
 - [ ] Decide whether fragment duplicates should also match pair ends (full Picard parity) in v0.2.
+- [ ] Measure the filtered-coverage gap from excluding supplementary records (Picard CollectWgsMetrics keeps them) on the golden and concordance runs; decide whether to keep the exclusion.
+- [ ] Golden dataset: HG002 Illumina reads for chr20 and a pinned minibwa are not on the analysis machine yet; the expected JSON can't be committed until they are.
 - [ ] Set real QC thresholds from the first 20–30 production samples.
 - [ ] Pick a contamination method for v0.3.
 - [x] Name settled on 25 October 2026: WarpQC (`warpqc` on the command line).
