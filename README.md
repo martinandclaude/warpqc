@@ -1,4 +1,4 @@
-# WarpQC
+# WarpQC - Quality control at warp speed
 
 WarpQC computes whole-genome sequencing QC in one streaming pass over aligner
 output. It reads name-grouped SAM straight from the aligner on stdin, never sorts,
